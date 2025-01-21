@@ -1,6 +1,9 @@
 import argparse, csv, json, msal, requests, logging, os, time
+from datetime import timedelta
+
 from dotenv import dotenv_values
 from pathlib import Path
+import datetime
 
 class analyze_audit():
     input: str
@@ -26,8 +29,12 @@ class analyze_audit():
         self.file_writer = None
         self.login_writer = None
 
+        # bearer token for Graph API
+        # make sure the first token is already expired
+        self.token_expires_at = datetime.datetime.now() + timedelta(hours=-1)
+        self.token = ""
 
-    def bearer_token(self):
+    def get_bearer_token(self):
         # code for retrieving a Graph token, slightly adapted from Microsofts example code
         app = msal.ConfidentialClientApplication(
             self.config['CLIENT_ID'],
@@ -36,17 +43,30 @@ class analyze_audit():
         )
         result = app.acquire_token_silent(["https://graph.microsoft.com/.default"], account=None)
         if not result:
+            log = "No suitable token exists in cache. Let's get a new one from AAD."
             logging.info("No suitable token exists in cache. Let's get a new one from AAD.")
             result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
 
         if "access_token" in result:
             logging.info("Authentication succeeded. Token acquired")
-            return result["access_token"]
+            # return result["access_token"]
+            return result
 
         else:
             logging.critical("Authentication failed: " + result.get("error_description", "No error description available"))
             raise Exception(
                 "Authentication failed: " + result.get("error_description", "No error description available"))
+
+    def bearer_token(self):
+        if datetime.datetime.now() > self.token_expires_at:
+            # print(f"{datetime.datetime.now()} - getting new token")
+            token_response = self.get_bearer_token()
+            self.token = token_response["access_token"]
+            self.token_expires_at = datetime.datetime.today() + timedelta(seconds=800)
+            return self.token
+        else:
+            # print(f"{datetime.datetime.now()} - using current token")
+            return self.token
 
     # Scans an audit export and displays the operations occurring with in. Useful to determine whether new functions,
     # parsers or outputs need to be coded.
@@ -372,38 +392,38 @@ class analyze_audit():
         self.output['files'] = self.input.with_stem(f"{self.input.stem}_files")
         self.output['logins'] = self.input.with_stem(f"{self.input.stem}_logins")
 
-        print(self.output['mail'])
-
-        with    open(self.output['mail'], 'w') as self.mail_out, \
-                open(self.output['rules'], 'w') as self.rules_out, \
-                open(self.output['files'], 'w') as self.files_out, \
-                open(self.output['logins'], 'w') as self.logins_out:
-
-            self.mail_writer = csv.writer(self.mail_out, quoting=csv.QUOTE_ALL)
-            self.rule_writer = csv.writer(self.rules_out, quoting=csv.QUOTE_ALL)
-            self.file_writer = csv.writer(self.files_out, quoting=csv.QUOTE_ALL)
-            self.login_writer = csv.writer(self.logins_out, quoting=csv.QUOTE_ALL)
-
-            # write header row in _mail output
-            self.mail_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'MailClient', 'MailAccessType',
-                                 'Throttled', 'OperationCount', 'InternetMessageId', 'MailFolder', 'DateTime',
-                                 'SenderAddress', 'SenderName',
-                                # /*'FolderPath' ,
-                                 'Subject', 'WebLink'])
-
-            # write header row in _rules output
-            self.rule_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'Rule Name'])
-
-            # write header row in _files output
-            self.file_writer.writerow(['datetime', 'app', 'operation', 'item_type',
-                                  #'item_site_url', 'item_path',
-                                  'file_name', 'full_url',
-                                  'user', 'client_ip', 'auth_type', 'event_source', 'managed_device', 'user_agent',
-                                  'device_platform'])
+        #
+        # with    open(self.output['mail'], 'w') as self.mail_out, \
+        #         open(self.output['rules'], 'w') as self.rules_out, \
+        #         open(self.output['files'], 'w') as self.files_out, \
+        #         open(self.output['logins'], 'w') as self.logins_out:
+        #
+        #     self.mail_writer = csv.writer(self.mail_out, quoting=csv.QUOTE_ALL)
+        #     self.rule_writer = csv.writer(self.rules_out, quoting=csv.QUOTE_ALL)
+        #     self.file_writer = csv.writer(self.files_out, quoting=csv.QUOTE_ALL)
+        #     self.login_writer = csv.writer(self.logins_out, quoting=csv.QUOTE_ALL)
 
 
-            self.login_writer.writerow(['datetime', 'operation', 'workload', 'username', 'ip', 'status', 'user_agent',
-                                   'result', 'device_name', 'device_os'])
+    def write_header_rows(self):
+        # write header row in _mail output
+        self.mail_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'MailClient', 'MailAccessType',
+                                   'Throttled', 'OperationCount', 'InternetMessageId', 'MailFolder', 'DateTime',
+                                   'SenderAddress', 'SenderName',
+                                   # /*'FolderPath' ,
+                                   'Subject', 'WebLink'])
+
+        # write header row in _rules output
+        self.rule_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'Rule Name'])
+
+        # write header row in _files output
+        self.file_writer.writerow(['datetime', 'app', 'operation', 'item_type',
+                                   # 'item_site_url', 'item_path',
+                                   'file_name', 'full_url',
+                                   'user', 'client_ip', 'auth_type', 'event_source', 'managed_device', 'user_agent',
+                                   'device_platform'])
+
+        self.login_writer.writerow(['datetime', 'operation', 'workload', 'username', 'ip', 'status', 'user_agent',
+                                    'result', 'device_name', 'device_os'])
 
     def execute(self):
         self.create_output_files()
@@ -418,6 +438,7 @@ class analyze_audit():
             self.file_writer = csv.writer(self.files_out, quoting=csv.QUOTE_ALL)
             self.login_writer = csv.writer(self.logins_out, quoting=csv.QUOTE_ALL)
 
+            self.write_header_rows()
 
             with open(self.input) as csv_file:
                 csv_reader = csv.DictReader(csv_file)
