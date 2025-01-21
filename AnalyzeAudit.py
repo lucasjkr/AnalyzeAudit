@@ -392,17 +392,6 @@ class analyze_audit():
         self.output['files'] = self.input.with_stem(f"{self.input.stem}_files")
         self.output['logins'] = self.input.with_stem(f"{self.input.stem}_logins")
 
-        #
-        # with    open(self.output['mail'], 'w') as self.mail_out, \
-        #         open(self.output['rules'], 'w') as self.rules_out, \
-        #         open(self.output['files'], 'w') as self.files_out, \
-        #         open(self.output['logins'], 'w') as self.logins_out:
-        #
-        #     self.mail_writer = csv.writer(self.mail_out, quoting=csv.QUOTE_ALL)
-        #     self.rule_writer = csv.writer(self.rules_out, quoting=csv.QUOTE_ALL)
-        #     self.file_writer = csv.writer(self.files_out, quoting=csv.QUOTE_ALL)
-        #     self.login_writer = csv.writer(self.logins_out, quoting=csv.QUOTE_ALL)
-
 
     def write_header_rows(self):
         # write header row in _mail output
