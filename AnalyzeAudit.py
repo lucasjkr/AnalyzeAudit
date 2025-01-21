@@ -3,6 +3,9 @@ from datetime import timedelta
 from datetime import datetime
 from dotenv import dotenv_values
 from pathlib import Path
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill
+
 
 class analyze_audit():
     input: str
@@ -33,6 +36,22 @@ class analyze_audit():
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
         self.token = ""
 
+        self.workbook = None
+
+    def create_empty_workbook(self):
+        self.workbook = Workbook()
+        del self.workbook[self.workbook.sheetnames[0]]
+
+    def write_to_worksheet(self, sheet, data):
+        # If worksheet doesnt exist, then create worksheet and write header row followed by values.
+        if sheet not in self.workbook:
+            worksheet = self.workbook.create_sheet(title=sheet)
+            worksheet.append(list(data.keys()))
+
+        worksheet = self.workbook[sheet]
+        worksheet.append(list(data.values()))
+
+
     def get_bearer_token(self):
         # code for retrieving a Graph token, slightly adapted from Microsofts example code
         app = msal.ConfidentialClientApplication(
@@ -42,7 +61,6 @@ class analyze_audit():
         )
         result = app.acquire_token_silent(["https://graph.microsoft.com/.default"], account=None)
         if not result:
-            log = "No suitable token exists in cache. Let's get a new one from AAD."
             logging.info("No suitable token exists in cache. Let's get a new one from AAD.")
             result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
 
@@ -102,17 +120,19 @@ class analyze_audit():
                     'ip': audit_data.get('ClientIP', ""),
                     'value': param.get('Value'),
                 }
-                self.rule_writer.writerow(export.values())
+
+                self.write_to_worksheet('rules', export)
                 self.counter['rules'] += 1
 
             elif row['Operation'] == "Remove-InboxRule" and param['Name'] == "AlwaysDeleteOutlookRulesBlob":
-                export = [
-                    row['CreationDate'],
-                    row['UserId'],
-                    row['Operation'],
-                    audit_data['ClientIP'],
-                ]
-                self.rule_writer.writerow(export)
+                export = {
+                    'datetime': row['CreationDate'],
+                    'user': row['UserId'],
+                    'operation': row['Operation'],
+                    'ip': audit_data['ClientIP'],
+                    'value': ""
+                }
+                self.write_to_worksheet('rules', export)
                 self.counter['rules'] += 1
 
     def analyze_mail_access(self, row):
@@ -179,12 +199,11 @@ class analyze_audit():
                 'subject': subject,
                 'link': link
             })
-            self.mail_writer.writerow(export.values())
+            self.write_to_worksheet('mail', export)
             self.counter['messages'] +=1
 
     def analyze_mail_delete(self, row):
         audit_data = json.loads(row['AuditData'])
-        # for item in AuditData['AffectedItems'][0]['FolderItems']:
         for item in audit_data['AffectedItems']:
             export = {
                 'CreationDate': row['CreationDate'],
@@ -245,7 +264,7 @@ class analyze_audit():
                 'subject': subject,
                 'link': link
             })
-            self.mail_writer.writerow(export.values())
+            self.write_to_worksheet('mail', export)
             self.counter['messages'] += 1
 
     def analyze_mail_send(self, row):
@@ -305,32 +324,31 @@ class analyze_audit():
             'subject': subject,
             'link': link
         })
-        self.mail_writer.writerow(export.values())
+        self.write_to_worksheet('mail', export)
         self.counter['messages'] +=1
 
     def analyze_file_folder_operations(self, row):
-            audit_data = json.loads(row['AuditData'])
-            export = {
-                'date': audit_data['CreationTime'],
-                'operation': audit_data['Operation'],
-                'app_used': audit_data['AppAccessContext']['ClientAppName'],
-                'item_type': audit_data['ItemType'],
-                # 'item_site_url': audit_data['SiteUrl'],
-                # 'item_path': audit_data['SourceRelativeUrl'],
-                'file_name': audit_data['SourceFileName'],
-                'full_url': f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}",
+        audit_data = json.loads(row['AuditData'])
+        export = {
+            'date': audit_data['CreationTime'],
+            'operation': audit_data['Operation'],
+            'app_used': audit_data['AppAccessContext']['ClientAppName'],
+            'item_type': audit_data['ItemType'],
+            # 'item_site_url': audit_data['SiteUrl'],
+            # 'item_path': audit_data['SourceRelativeUrl'],
+            'file_name': audit_data['SourceFileName'],
+            'full_url': f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}",
 
-                'user': audit_data.get('UserId', ""),
-                'client_ip': audit_data.get('ClientIP', ""),
-                'auth_type': audit_data.get('AuthenticationType', ""),
-                'event_source': audit_data.get('EventSource', ""),
-                'managed_device': audit_data.get('IsManagedDevice', ""),
-                'user_agent': audit_data.get('UserAgent', ""),
-                'device_platform': audit_data.get('Platform', ""),
-            }
-
-            self.file_writer.writerow(export.values())
-            self.counter['file_operations'] += 1
+            'user': audit_data.get('UserId', ""),
+            'client_ip': audit_data.get('ClientIP', ""),
+            'auth_type': audit_data.get('AuthenticationType', ""),
+            'event_source': audit_data.get('EventSource', ""),
+            'managed_device': audit_data.get('IsManagedDevice', ""),
+            'user_agent': audit_data.get('UserAgent', ""),
+            'device_platform': audit_data.get('Platform', ""),
+        }
+        self.write_to_worksheet('files', export)
+        self.counter['file_operations'] += 1
 
     def analyze_login_events(self, row):
         audit_data = json.loads(row['AuditData'])
@@ -361,7 +379,7 @@ class analyze_audit():
             elif prop['Name'] == "OS":
                 export['device_os'] = prop['Value']
 
-        self.login_writer.writerow(export.values())
+        self.write_to_worksheet('logins', export)
         self.counter['logins'] += 1
 
     def analyze_signin_events(self, row):
@@ -378,92 +396,92 @@ class analyze_audit():
             'device_name': "",
             'device_os': audit_data.get("Platform"),
         }
-        self.login_writer.writerow(export.values())
+        self.write_to_worksheet('logins', export)
         self.counter['logins'] += 1
 
-    def create_output_files(self):
-        self.input = Path(self.input)
+    def save_and_cleanup_excel_files(self):
+        for sheet in self.workbook.sheetnames:
+            worksheet = self.workbook[sheet]
 
-        self.output['mail'] = self.input.with_stem(f"{self.input.stem}_mail")
-        self.output['rules'] = self.input.with_stem(f"{self.input.stem}_rules")
-        self.output['files'] = self.input.with_stem(f"{self.input.stem}_files")
-        self.output['logins'] = self.input.with_stem(f"{self.input.stem}_logins")
+            # bump up fon font size and change URLs into working hyperlinks
+            for row in worksheet:
+                for cell in row:
+                    cell.font = Font(size=13)
+                    # create hyperlinks in cells that look like they are hyperlinks
+                    if type(cell.value) is str and cell.value.startswith("https://") == True:
+                        cell.hyperlink = cell.value
+                        cell.value = "View on the Web"
+                        cell.style = "Hyperlink"
 
+            # Make the entire first row bold
+            for cell in worksheet[1]:
+                cell.font = Font(bold=True, size=13)
+                cell.fill = PatternFill(start_color="ededed", end_color="ededed", fill_type="solid")
 
-    def write_header_rows(self):
-        # write header row in _mail output
-        self.mail_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'MailClient', 'MailAccessType',
-                                   'Throttled', 'OperationCount', 'InternetMessageId', 'MailFolder', 'DateTime',
-                                   'SenderAddress', 'SenderName',
-                                   # /*'FolderPath' ,
-                                   'Subject', 'WebLink'])
+            # Iterate over all columns and adjust their widths
+            # https://python-bloggers.com/2023/05/how-to-automatically-adjust-excel-column-widths-in-openpyxl/
+            for column in worksheet.columns:
+                max_length = 0
+                column_letter = column[0].column_letter
+                for cell in column:
+                    try:
+                        if len(str(cell.value)) > max_length:
+                            max_length = len(cell.value)
+                    except:
+                        pass
+                adjusted_width = (max_length + 2) * 1.1
+                worksheet.column_dimensions[column_letter].width = adjusted_width
 
-        # write header row in _rules output
-        self.rule_writer.writerow(['datetime', 'UserId', 'Operation', 'ClientIP', 'Rule Name'])
+            # Freeze the header row - openpyxl freezes starting at the row and column BEFORE the cell referenced, so
+            # this will freeze the first row
+            # https://www.codespeedy.com/freeze-header-rows-in-openpyxl-python/
+            worksheet.freeze_panes = 'A2'
 
-        # write header row in _files output
-        self.file_writer.writerow(['datetime', 'app', 'operation', 'item_type',
-                                   # 'item_site_url', 'item_path',
-                                   'file_name', 'full_url',
-                                   'user', 'client_ip', 'auth_type', 'event_source', 'managed_device', 'user_agent',
-                                   'device_platform'])
-
-        self.login_writer.writerow(['datetime', 'operation', 'workload', 'username', 'ip', 'status', 'user_agent',
-                                    'result', 'device_name', 'device_os'])
+        self.workbook.save(f"data{os.sep}{Path(self.input).stem}.xlsx")
 
     def execute(self):
-        self.create_output_files()
+        self.create_empty_workbook()
 
-        with    open(self.output['mail'], 'w') as self.mail_out, \
-                open(self.output['rules'], 'w') as self.rules_out, \
-                open(self.output['files'], 'w') as self.files_out, \
-                open(self.output['logins'], 'w') as self.logins_out:
+        with open(self.input) as csv_file:
+            csv_reader = csv.DictReader(csv_file)
+            for row in csv_reader:
 
-            self.mail_writer = csv.writer(self.mail_out, quoting=csv.QUOTE_ALL)
-            self.rule_writer = csv.writer(self.rules_out, quoting=csv.QUOTE_ALL)
-            self.file_writer = csv.writer(self.files_out, quoting=csv.QUOTE_ALL)
-            self.login_writer = csv.writer(self.logins_out, quoting=csv.QUOTE_ALL)
+                # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
+                # a threat actor has modified inbox rules. The user should review the created/changed rules and delete
+                # if it's malicious
+                if "Rule" in row['Operation']:
+                    self.analyze_mail_rule(row)
 
-            self.write_header_rows()
+                # When AuditData contains "Folders", that indicates it contains records of mail items accessed. Anything else will be ignored for now.
+                # In the future, should report on mailbox rules being created, and eventually OneDrive/Sharepoint activity. Also should somehow alert
+                # when it finds "Sync" events rather than "Bind", and when Throttled is true.
+                #
+                # * Sync means the entire mailbox was synced, rather than just batches of messages being retrieved.
+                # * Bind just means one or more messages retrieved
+                # * Throttled means that logging was throttled - more messages were retrieved than the logs show
+                # elif 'Folders' in audit_data:
+                elif row['Operation'] == "MailItemsAccessed" and "Folders" in row['AuditData']:
+                    self.analyze_mail_access(row)
 
-            with open(self.input) as csv_file:
-                csv_reader = csv.DictReader(csv_file)
-                for row in csv_reader:
+                # do the same for any messages moved to deleted items
+                elif row['Operation'] == "MoveToDeletedItems":
+                    self.analyze_mail_delete(row)
 
-                    # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
-                    # a threat actor has modified inbox rules. The user should review the created/changed rules and delete
-                    # if it's malicious
-                    if "Rule" in row['Operation']:
-                        self.analyze_mail_rule(row)
+                # compile Sent Messages in the same way
+                elif row['Operation'] == "Send":
+                    self.analyze_mail_send(row)
 
-                    # When AuditData contains "Folders", that indicates it contains records of mail items accessed. Anything else will be ignored for now.
-                    # In the future, should report on mailbox rules being created, and eventually OneDrive/Sharepoint activity. Also should somehow alert
-                    # when it finds "Sync" events rather than "Bind", and when Throttled is true.
-                    #
-                    # * Sync means the entire mailbox was synced, rather than just batches of messages being retrieved.
-                    # * Bind just means one or more messages retrieved
-                    # * Throttled means that logging was throttled - more messages were retrieved than the logs show
-                    # elif 'Folders' in audit_data:
-                    elif row['Operation'] == "MailItemsAccessed" and "Folders" in row['AuditData']:
-                        self.analyze_mail_access(row)
+                # OneDrive and Sharepoint Operations
+                elif "File" in row['Operation'] or "Folder" in row['Operation']:
+                    self.analyze_file_folder_operations(row)
 
-                    # do the same for any messages moved to deleted items
-                    elif row['Operation'] == "MoveToDeletedItems":
-                        self.analyze_mail_delete(row)
+                elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
+                    self.analyze_login_events(row)
 
-                    # compile Sent Messages in the same way
-                    elif row['Operation'] == "Send":
-                        self.analyze_mail_send(row)
+                elif row['Operation'] == "SignInEvent":
+                    self.analyze_signin_events(row)
 
-                    # OneDrive and Sharepoint Operations
-                    elif "File" in row['Operation'] or "Folder" in row['Operation']:
-                        self.analyze_file_folder_operations(row)
-
-                    elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
-                        self.analyze_login_events(row)
-
-                    elif row['Operation'] == "SignInEvent":
-                        self.analyze_signin_events(row)
+                self.save_and_cleanup_excel_files()
 
         end_time = time.time()
         duration = end_time - self.counter['start_time']
@@ -495,8 +513,6 @@ class analyze_audit():
             self.input = arg.input_file
             self.execute()
             exit()
-
-
 
 if __name__ == "__main__":
     analyze = analyze_audit()
