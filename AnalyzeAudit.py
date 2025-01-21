@@ -13,7 +13,9 @@ class analyze_audit():
     def __init__(self):
 
         self.config = dotenv_values()  # load values for API keys from .env file
-        self.ip_ignore_list = json.loads(self.config['IP_IGNORE_LIST'])
+
+        # ip_ignore_list .env entry to JSON list. If entry doesn't exist in .env file, then create an empty list
+        self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
 
         self.counter = {
             'messages': 0,
