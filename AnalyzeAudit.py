@@ -1,9 +1,8 @@
 import argparse, csv, json, msal, requests, logging, os, time
 from datetime import timedelta
-
+from datetime import datetime
 from dotenv import dotenv_values
 from pathlib import Path
-import datetime
 
 class analyze_audit():
     input: str
@@ -31,7 +30,7 @@ class analyze_audit():
 
         # bearer token for Graph API
         # make sure the first token is already expired
-        self.token_expires_at = datetime.datetime.now() + timedelta(hours=-1)
+        self.token_expires_at = datetime.now() + timedelta(hours=-1)
         self.token = ""
 
     def get_bearer_token(self):
@@ -58,14 +57,12 @@ class analyze_audit():
                 "Authentication failed: " + result.get("error_description", "No error description available"))
 
     def bearer_token(self):
-        if datetime.datetime.now() > self.token_expires_at:
-            # print(f"{datetime.datetime.now()} - getting new token")
+        if datetime.now() > self.token_expires_at:
             token_response = self.get_bearer_token()
             self.token = token_response["access_token"]
-            self.token_expires_at = datetime.datetime.today() + timedelta(seconds=800)
+            self.token_expires_at = datetime.today() + timedelta(seconds=800)
             return self.token
         else:
-            # print(f"{datetime.datetime.now()} - using current token")
             return self.token
 
     # Scans an audit export and displays the operations occurring with in. Useful to determine whether new functions,
