@@ -27,8 +27,7 @@ class analyze_audit():
 
         self.input = ""
 
-        # bearer token for Graph API
-        # make sure the first token is already expired
+        # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
         self.token = ""
 
@@ -39,17 +38,20 @@ class analyze_audit():
         del self.workbook[self.workbook.sheetnames[0]]
 
     def write_to_worksheet(self, sheet, data):
-        # If worksheet doesnt exist, then create worksheet and write header row followed by values.
+        # If worksheet doesn't exist, then create worksheet and write header row.
         if sheet not in self.workbook:
             worksheet = self.workbook.create_sheet(title=sheet)
             worksheet.append(list(data.keys()))
 
+        # now insert the row of values that need to be inserted (action happens whether header row was created or not
         worksheet = self.workbook[sheet]
         worksheet.append(list(data.values()))
 
 
     def get_bearer_token(self):
         # code for retrieving a Graph token, slightly adapted from Microsofts example code
+        # this should not be called directly, instead call bearer_token() below, which caches the token
+        # rather than request a new token with each API call.
         app = msal.ConfidentialClientApplication(
             self.config['CLIENT_ID'],
             authority="https://login.microsoftonline.com/" + self.config['TENANT_ID'],
@@ -70,11 +72,12 @@ class analyze_audit():
             raise Exception(
                 "Authentication failed: " + result.get("error_description", "No error description available"))
 
+    # cache the Graph token for 100 seconds LESS than the actual expiration time
     def bearer_token(self):
         if datetime.now() > self.token_expires_at:
             token_response = self.get_bearer_token()
             self.token = token_response["access_token"]
-            self.token_expires_at = datetime.today() + timedelta(seconds=800)
+            self.token_expires_at = datetime.today() + timedelta(seconds=(token_response["expires_in"] - 100))
             return self.token
         else:
             return self.token
