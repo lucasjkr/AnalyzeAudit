@@ -11,8 +11,8 @@ class analyze_audit():
     input: str
 
     def __init__(self):
-
-        self.config = dotenv_values()  # load values for API keys from .env file
+        # load values for API keys from .env file
+        self.config = dotenv_values()
 
         # ip_ignore_list .env entry to JSON list. If entry doesn't exist in .env file, then create an empty list
         self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
