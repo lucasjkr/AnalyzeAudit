@@ -26,12 +26,6 @@ class analyze_audit():
         }
 
         self.input = ""
-        self.output = {}
-
-        self.mail_writer = None
-        self.rule_writer = None
-        self.file_writer = None
-        self.login_writer = None
 
         # bearer token for Graph API
         # make sure the first token is already expired
