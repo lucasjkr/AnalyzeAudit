@@ -242,8 +242,6 @@ class analyze_audit():
                 'ClientIP': audit_data['ClientIPAddress'],
                 'MailClient': audit_data['ClientInfoString'],
                 'MailAccessType': 'Delete',
-                'Throttled': '',
-                'OperationCount': '',
                 'InternetMessageId': item['InternetMessageId']
             }
 
