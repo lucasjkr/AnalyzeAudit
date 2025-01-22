@@ -141,70 +141,72 @@ class analyze_audit():
 
     def analyze_mail_access(self, row):
         audit_data = json.loads(row['AuditData'])
-        for item in audit_data['Folders'][0]['FolderItems']:
 
-            # If clientIP is in the IP ignore list, ignore and move to next
-            if audit_data['ClientIPAddress'] in self.ip_ignore_list:
-                continue
+        for folder in audit_data['Folders']:
+            for item in folder['FolderItems']:
 
-            export = {
-                'CreationDate': row['CreationDate'],
-                'UserId': row['UserId'],
-                'Operation': row['Operation'],
-                'ClientIP': audit_data['ClientIPAddress'],
-                'MailClient': audit_data['ClientInfoString'],
-                'MailAccessType': audit_data['OperationProperties'][0]['Value'],
-                'Throttled': audit_data['OperationProperties'][1]['Value'],
-                'OperationCount': audit_data['OperationCount'],
-                'InternetMessageId': item['InternetMessageId']
-            }
+                # If clientIP is in the IP ignore list, ignore and move to next
+                if audit_data['ClientIPAddress'] in self.ip_ignore_list:
+                    continue
 
-            # retrieve message metadata from Microsoft
-            message = self.get_message(export['UserId'], export['InternetMessageId'])
+                export = {
+                    'CreationDate': row['CreationDate'],
+                    'UserId': row['UserId'],
+                    'Operation': row['Operation'],
+                    'ClientIP': audit_data['ClientIPAddress'],
+                    'MailClient': audit_data['ClientInfoString'],
+                    'MailAccessType': audit_data['OperationProperties'][0]['Value'],
+                    'Throttled': audit_data['OperationProperties'][1]['Value'],
+                    'OperationCount': audit_data['OperationCount'],
+                    'InternetMessageId': item['InternetMessageId']
+                }
 
-            # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
-            # retrieve message metadata from Microsoft
-            try:
-                date = message['value'][0]['receivedDateTime']
-            except Exception as e:
-                date = ""
+                # retrieve message metadata from Microsoft
+                message = self.get_message(export['UserId'], export['InternetMessageId'])
 
-            try:
-                sender = message['value'][0]['from']['emailAddress']['address']
-            except Exception as e:
-                sender = ""
+                # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
+                # retrieve message metadata from Microsoft
+                try:
+                    date = message['value'][0]['receivedDateTime']
+                except Exception as e:
+                    date = ""
 
-            try:
-                sender_name = message['value'][0]['from']['emailAddress']['name']
-            except Exception as e:
-                sender_name = ""
+                try:
+                    sender = message['value'][0]['from']['emailAddress']['address']
+                except Exception as e:
+                    sender = ""
 
-            try:
-                mail_folder = audit_data['Folders'][0]['Path']
-            except Exception as e:
-                mail_folder = ""
+                try:
+                    sender_name = message['value'][0]['from']['emailAddress']['name']
+                except Exception as e:
+                    sender_name = ""
 
-            try:
-                subject = message['value'][0]['subject']
-            except Exception as e:
-                subject = ""
+                try:
+                    mail_folder = audit_data['Folders'][0]['Path']
+                except Exception as e:
+                    mail_folder = ""
 
-            try:
-                link = message['value'][0]['webLink']
-            except Exception as e:
-                link = ""
+                try:
+                    subject = message['value'][0]['subject']
+                except Exception as e:
+                    subject = ""
 
-            # update the export dictionary and write line to file
-            export.update({
-                'folder': mail_folder,
-                'date': date,
-                'sender': sender,
-                'sender_name': sender_name,
-                'subject': subject,
-                'link': link
-            })
-            self.write_to_worksheet('mail-reads', export)
-            self.counter['mail-reads'] +=1
+                try:
+                    link = message['value'][0]['webLink']
+                except Exception as e:
+                    link = ""
+
+                # update the export dictionary and write line to file
+                export.update({
+                    'folder': mail_folder,
+                    'date': date,
+                    'sender': sender,
+                    'sender_name': sender_name,
+                    'subject': subject,
+                    'link': link
+                })
+                self.write_to_worksheet('mail-reads', export)
+                self.counter['mail-reads'] +=1
 
     def analyze_mail_sync(self, row):
         audit = json.loads(row['AuditData'])
