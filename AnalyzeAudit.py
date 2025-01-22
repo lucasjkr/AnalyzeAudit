@@ -20,6 +20,7 @@ class analyze_audit():
         self.counter = {
             'mail-reads': 0,
             'mail-sends': 0,
+            'mail-syncs': 0,
             'mail-deletes': 0,
             'rules': 0,
             'file_operations': 0,
@@ -204,6 +205,30 @@ class analyze_audit():
             })
             self.write_to_worksheet('mail-reads', export)
             self.counter['mail-reads'] +=1
+
+    def analyze_mail_sync(self, row):
+        audit = json.loads(row['AuditData'])
+
+        export = {}
+        export['datetime'] = row['CreationDate']
+        export['operation'] = row['Operation']
+        export['user'] = audit['UserId']
+        export['mailbox'] = audit['MailboxOwnerUPN']
+        export['user_ip'] = audit['ClientIP']
+        export['user_app'] = audit['ClientProcessName']
+        export['user_agent'] = audit['ClientInfoString']
+
+        for prop in audit['OperationProperties']:
+            if prop['Name'] == "MailAccessType":
+                export['access'] = prop['Value']
+            if prop['Name'] == "IsThrottled":
+                export['throttled'] = prop['Value']
+
+        export['mail_folder'] = audit['Item']['ParentFolder']['Name']
+        export['mail_folder_path'] = audit['Item']['ParentFolder']['Path']
+
+        self.write_to_worksheet('mail-syncs', export)
+        self.counter['mail-syncs'] += 1
 
     def analyze_mail_delete(self, row):
         audit_data = json.loads(row['AuditData'])
@@ -462,9 +487,12 @@ class analyze_audit():
                 # * Sync means the entire mailbox was synced, rather than just batches of messages being retrieved.
                 # * Bind just means one or more messages retrieved
                 # * Throttled means that logging was throttled - more messages were retrieved than the logs show
-                # elif 'Folders' in audit_data:
                 elif row['Operation'] == "MailItemsAccessed" and "Folders" in row['AuditData']:
                     self.analyze_mail_access(row)
+
+                # Mail folder syncs - much more worrisome
+                elif row['Operation'] == "MailItemsAccessed" and "Folders" not in row['AuditData']:
+                    self.analyze_mail_sync(row)
 
                 # do the same for any messages moved to deleted items
                 elif row['Operation'] == "MoveToDeletedItems":
