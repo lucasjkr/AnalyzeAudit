@@ -18,11 +18,14 @@ class analyze_audit():
         self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
 
         self.counter = {
-            'messages': 0,
+            'mail-reads': 0,
+            'mail-sends': 0,
+            'mail-deletes': 0,
             'rules': 0,
             'file_operations': 0,
             'logins': 0,
-            'start_time': time.time()
+            'start_time': time.time(),
+            'duration': 0
         }
 
         self.input = ""
@@ -198,8 +201,8 @@ class analyze_audit():
                 'subject': subject,
                 'link': link
             })
-            self.write_to_worksheet('mail', export)
-            self.counter['messages'] +=1
+            self.write_to_worksheet('mail-reads', export)
+            self.counter['mail-reads'] +=1
 
     def analyze_mail_delete(self, row):
         audit_data = json.loads(row['AuditData'])
@@ -263,8 +266,8 @@ class analyze_audit():
                 'subject': subject,
                 'link': link
             })
-            self.write_to_worksheet('mail', export)
-            self.counter['messages'] += 1
+            self.write_to_worksheet('mail-deletes', export)
+            self.counter['mail-deletes'] +=1
 
     def analyze_mail_send(self, row):
         audit_data = json.loads(row['AuditData'])
@@ -323,8 +326,8 @@ class analyze_audit():
             'subject': subject,
             'link': link
         })
-        self.write_to_worksheet('mail', export)
-        self.counter['messages'] +=1
+        self.write_to_worksheet('mail-sends', export)
+        self.counter['mail-sends'] += 1
 
     def analyze_file_folder_operations(self, row):
         audit_data = json.loads(row['AuditData'])
@@ -486,7 +489,9 @@ class analyze_audit():
         duration = end_time - self.counter['start_time']
         print(duration)
 
-        print(f"{self.counter['messages']} mailbox messages")
+        print(f"{self.counter['mail-reads']} read messages")
+        print(f"{self.counter['mail-deletes']} deleted messages")
+        print(f"{self.counter['mail-sends']} sent messages")
         print(f"{self.counter['rules']} mailbox rule events")
         print(f"{self.counter['file_operations']} file operations")
         print(f"{self.counter['logins']} logins")
@@ -516,6 +521,7 @@ class analyze_audit():
 if __name__ == "__main__":
     analyze = analyze_audit()
     analyze.main()
+
 
 
 
