@@ -11,6 +11,9 @@ class analyze_audit():
     input: str
 
     def __init__(self):
+        # input file
+        self.input = ""
+
         # load values for API keys from .env file
         self.config = dotenv_values()
 
@@ -29,12 +32,11 @@ class analyze_audit():
             'duration': 0
         }
 
-        self.input = ""
-
         # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
         self.token = ""
 
+        # container for target notebook for results
         self.workbook = None
 
     def create_empty_workbook(self):
@@ -42,7 +44,7 @@ class analyze_audit():
         del self.workbook[self.workbook.sheetnames[0]]
 
     def write_to_worksheet(self, sheet, data):
-        # If worksheet doesn't exist, then create worksheet and write header row.
+        # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
         if sheet not in self.workbook:
             worksheet = self.workbook.create_sheet(title=sheet)
             worksheet.append(list(data.keys()))
@@ -101,7 +103,6 @@ class analyze_audit():
 
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
-        # retrieve message metadata from Graph, searching by InternetMessageId
         headers = {
             'Content-Type': 'application/json',
             'Authorization': 'Bearer ' + self.bearer_token()
@@ -110,6 +111,7 @@ class analyze_audit():
             f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
             headers=headers).json()
 
+    # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, row):
         audit_data = json.loads(row['AuditData'])
 
@@ -124,7 +126,6 @@ class analyze_audit():
                     'ip': audit_data.get('ClientIP', ""),
                     'value': param.get('Value'),
                 }
-
                 self.write_to_worksheet('rules', export)
                 self.counter['rules'] += 1
 
@@ -139,6 +140,7 @@ class analyze_audit():
                 self.write_to_worksheet('rules', export)
                 self.counter['rules'] += 1
 
+    # Parses MailItemsAccessed events, reporting individual messages accessed and pulling metadata from Graph
     def analyze_mail_access(self, row):
         audit_data = json.loads(row['AuditData'])
 
@@ -208,30 +210,33 @@ class analyze_audit():
                 self.write_to_worksheet('mail-reads', export)
                 self.counter['mail-reads'] +=1
 
+    # Analyze Mail Sync events - the occur against mail folders and can mean that the entirety
+    # of the folder was accessed
     def analyze_mail_sync(self, row):
-        audit = json.loads(row['AuditData'])
+        audit_data = json.loads(row['AuditData'])
 
         export = {}
         export['datetime'] = row['CreationDate']
         export['operation'] = row['Operation']
-        export['user'] = audit['UserId']
-        export['mailbox'] = audit['MailboxOwnerUPN']
-        export['user_ip'] = audit['ClientIP']
-        export['user_app'] = audit['ClientProcessName']
-        export['user_agent'] = audit['ClientInfoString']
+        export['user'] = audit_data['UserId']
+        export['mailbox'] = audit_data['MailboxOwnerUPN']
+        export['user_ip'] = audit_data['ClientIP']
+        export['user_app'] = audit_data['ClientProcessName']
+        export['user_agent'] = audit_data['ClientInfoString']
 
-        for prop in audit['OperationProperties']:
+        for prop in audit_data['OperationProperties']:
             if prop['Name'] == "MailAccessType":
-                export['access'] = prop['Value']
+                export['access'] = prop['Value']    # This will usually be Sync
             if prop['Name'] == "IsThrottled":
                 export['throttled'] = prop['Value']
 
-        export['mail_folder'] = audit['Item']['ParentFolder']['Name']
-        export['mail_folder_path'] = audit['Item']['ParentFolder']['Path']
+        export['mail_folder'] = audit_data['Item']['ParentFolder']['Name']
+        export['mail_folder_path'] = audit_data['Item']['ParentFolder']['Path']
 
         self.write_to_worksheet('mail-syncs', export)
         self.counter['mail-syncs'] += 1
 
+    # same process for deleted messages, will retrive metadata unless the message in unrecoverable
     def analyze_mail_delete(self, row):
         audit_data = json.loads(row['AuditData'])
         for item in audit_data['AffectedItems']:
@@ -295,6 +300,7 @@ class analyze_audit():
             self.write_to_worksheet('mail-deletes', export)
             self.counter['mail-deletes'] +=1
 
+    # Review messages sent
     def analyze_mail_send(self, row):
         audit_data = json.loads(row['AuditData'])
         export = {
@@ -355,6 +361,7 @@ class analyze_audit():
         self.write_to_worksheet('mail-sends', export)
         self.counter['mail-sends'] += 1
 
+    # Analyzes OneDrive and Sharepoint activity
     def analyze_file_folder_operations(self, row):
         audit_data = json.loads(row['AuditData'])
         export = {
@@ -378,6 +385,8 @@ class analyze_audit():
         self.write_to_worksheet('files', export)
         self.counter['file_operations'] += 1
 
+    # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
+    # as Threat Hunting Data is
     def analyze_login_events(self, row):
         audit_data = json.loads(row['AuditData'])
         export = {
@@ -410,6 +419,8 @@ class analyze_audit():
         self.write_to_worksheet('logins', export)
         self.counter['logins'] += 1
 
+    # Same as Login Events above - Threat Hunting queries are the preferred method of reviewing
+    # sign-in history
     def analyze_signin_events(self, row):
         audit_data = json.loads(row['AuditData'])
         export = {
@@ -427,7 +438,12 @@ class analyze_audit():
         self.write_to_worksheet('logins', export)
         self.counter['logins'] += 1
 
-    def save_and_cleanup_excel_files(self):
+    # Does the following:
+    # * Changes font size to 13pt to be more legible,
+    # * widens columns to fit data
+    # * Creates a header row and freezes that row to top of page
+    # * identifies hyperlinks and turns them into clickable links
+    def save_and_cleanup_excel_file(self):
         for sheet in self.workbook.sheetnames:
             worksheet = self.workbook[sheet]
 
@@ -439,7 +455,9 @@ class analyze_audit():
                     if type(cell.value) is str and cell.value.startswith("https://") == True:
                         cell.hyperlink = cell.value
                         cell.value = "View on the Web"
-                        cell.style = "Hyperlink"
+                        # Issue: Neither of the methods below make the link LOOK like a hyperlink
+                        # cell.font = Font(bold=True, size=13, underline='single', color='0563C1')
+                        # cell.style = "Hyperlink"
 
             # Make the entire first row bold
             for cell in worksheet[1]:
@@ -512,7 +530,7 @@ class analyze_audit():
                 elif row['Operation'] == "SignInEvent":
                     self.analyze_signin_events(row)
 
-                self.save_and_cleanup_excel_files()
+                self.save_and_cleanup_excel_file()
 
 
     def main(self):
