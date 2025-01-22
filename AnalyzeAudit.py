@@ -24,7 +24,7 @@ class analyze_audit():
             'rules': 0,
             'file_operations': 0,
             'logins': 0,
-            'start_time': time.time(),
+            'start': time.time(),
             'duration': 0
         }
 
@@ -96,6 +96,7 @@ class analyze_audit():
                     operations.append(row['Operation'])
         for op in sorted(operations):
             print(op)
+        exit()
 
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
@@ -485,16 +486,6 @@ class analyze_audit():
 
                 self.save_and_cleanup_excel_files()
 
-        end_time = time.time()
-        duration = end_time - self.counter['start_time']
-        print(duration)
-
-        print(f"{self.counter['mail-reads']} read messages")
-        print(f"{self.counter['mail-deletes']} deleted messages")
-        print(f"{self.counter['mail-sends']} sent messages")
-        print(f"{self.counter['rules']} mailbox rule events")
-        print(f"{self.counter['file_operations']} file operations")
-        print(f"{self.counter['logins']} logins")
 
     def main(self):
         args = argparse.ArgumentParser()
@@ -509,19 +500,20 @@ class analyze_audit():
         arg = args.parse_args()
         self.input = Path(arg.input_file)
 
-        if arg.ops == True:
+        if arg.ops == True and arg.input_file != None:
             self.show_operations()
-            exit()
 
-        if arg.ops == False and arg.input_file != None:
+        elif arg.ops == False and arg.input_file != None:
             self.input = arg.input_file
             self.execute()
-            exit()
 
 if __name__ == "__main__":
     analyze = analyze_audit()
     analyze.main()
+    analyze.counter['duration'] = f"{ round(time.time() - analyze.counter['start'], 2) } seconds"
+    del analyze.counter['start']
 
+    print(json.dumps(analyze.counter, indent=4))
 
 
 
