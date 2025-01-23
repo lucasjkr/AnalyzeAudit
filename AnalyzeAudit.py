@@ -6,7 +6,6 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 
-
 class analyze_audit():
     input: str
 
@@ -164,7 +163,11 @@ class analyze_audit():
                 }
 
                 # retrieve message metadata from Microsoft
-                message = self.get_message(export['UserId'], export['InternetMessageId'])
+                try:
+                    message = self.get_message(export['UserId'], export['InternetMessageId'])
+                except Exception as e:
+                    print(f"{export['InternetMessageId']} - {e}\n")
+                    continue
 
                 # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
                 # retrieve message metadata from Microsoft
@@ -255,7 +258,11 @@ class analyze_audit():
                 continue
 
             # retrieve message metadata from Microsoft
-            message = self.get_message(export['UserId'], export['InternetMessageId'])
+            try:
+                message = self.get_message(export['UserId'], export['InternetMessageId'])
+            except Exception as e:
+                print(f"{export['InternetMessageId']} - {e}\n")
+                continue
 
             # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
             try:
