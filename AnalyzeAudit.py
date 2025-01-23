@@ -1,4 +1,6 @@
-import argparse, csv, json, msal, requests, logging, os, time
+import argparse, csv, json, msal, logging, os, time
+# import requests
+import requests_cache
 from datetime import timedelta
 from datetime import datetime
 from dotenv import dotenv_values
@@ -8,6 +10,7 @@ from openpyxl.styles import Font, PatternFill
 
 class analyze_audit():
     input: str
+    cache: None
 
     def __init__(self):
         # input file
@@ -19,6 +22,8 @@ class analyze_audit():
         # ip_ignore_list .env entry to JSON list. If entry doesn't exist in .env file, then create an empty list
         self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
 
+        self.cache = {}
+
         self.counter = {
             'mail-reads': 0,
             'mail-sends': 0,
@@ -28,8 +33,15 @@ class analyze_audit():
             'file_operations': 0,
             'logins': 0,
             'start': time.time(),
+            'total_mail_lookups': 0,
+            'total_mail_cache_hits': 0,
+            'total_mail_cache_misses': 0,
             'duration': 0
         }
+
+        # reuse the DNS cache through execution of program
+        # https://pypi.org/project/requests-cache/
+        self.session = requests_cache.CachedSession('session_dns_cache', expire_after=360)
 
         # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
@@ -52,7 +64,6 @@ class analyze_audit():
         worksheet = self.workbook[sheet]
         worksheet.append(list(data.values()))
 
-
     def get_bearer_token(self):
         # code for retrieving a Graph token, slightly adapted from Microsofts example code
         # this should not be called directly, instead call bearer_token() below, which caches the token
@@ -71,7 +82,6 @@ class analyze_audit():
             logging.info("Authentication succeeded. Token acquired")
             # return result["access_token"]
             return result
-
         else:
             logging.critical("Authentication failed: " + result.get("error_description", "No error description available"))
             raise Exception(
@@ -102,13 +112,24 @@ class analyze_audit():
 
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
-        headers = {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + self.bearer_token()
-        }
-        return requests.get(
-            f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
-            headers=headers).json()
+        self.counter['total_mail_lookups'] += 1
+        if internet_message_id in self.cache:
+            self.counter['total_mail_cache_hits'] += 1
+            return self.cache[internet_message_id]
+        else:
+            headers = {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + self.bearer_token()
+            }
+            # response = requests.get(
+            #     f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
+            #     headers=headers)
+            response = self.session.get(
+                f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
+                headers=headers)
+            self.counter['total_mail_cache_misses'] += 1
+            self.cache[internet_message_id] = response
+            return response.json()
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, row):
