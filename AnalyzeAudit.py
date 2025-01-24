@@ -7,6 +7,7 @@ from dotenv import dotenv_values
 from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
+import urllib.parse
 
 class analyze_audit():
     input: str
@@ -112,6 +113,9 @@ class analyze_audit():
 
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
+        # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
+        # aren't allowed in a URL normally
+        internet_message_id = urllib.parse.quote(internet_message_id)
         self.counter['total_mail_lookups'] += 1
 
         if internet_message_id in self.cache:
