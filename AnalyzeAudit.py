@@ -113,23 +113,21 @@ class analyze_audit():
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
         self.counter['total_mail_lookups'] += 1
+
         if internet_message_id in self.cache:
             self.counter['total_mail_cache_hits'] += 1
-            return self.cache[internet_message_id]
+
         else:
             headers = {
                 'Content-Type': 'application/json',
                 'Authorization': 'Bearer ' + self.bearer_token()
             }
-            # response = requests.get(
-            #     f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
-            #     headers=headers)
             response = self.session.get(
                 f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
                 headers=headers)
             self.counter['total_mail_cache_misses'] += 1
-            self.cache[internet_message_id] = response
-            return response.json()
+            self.cache[internet_message_id] = response.json()
+        return self.cache[internet_message_id]
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, row):
