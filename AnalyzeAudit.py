@@ -45,7 +45,7 @@ class analyze_audit():
 
     def create_empty_workbook(self):
         self.workbook = Workbook()
-        del self.workbook[self.workbook.sheetnames[0]]
+        # del self.workbook[self.workbook.sheetnames[0]]
 
     def write_to_worksheet(self, sheet, data):
         # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
@@ -252,7 +252,7 @@ class analyze_audit():
         self.increase_counter('mail-syncs')
 
     # same process for deleted messages, will retrive metadata unless the message in unrecoverable
-    def analyze_mail_delete(self, audit_data):
+    def analyze_mail_trashed(self, audit_data):
         for item in audit_data['AffectedItems']:
             export = {
                 'CreationDate': audit_data['CreationTime'],
@@ -260,7 +260,6 @@ class analyze_audit():
                 'Operation': audit_data['Operation'],
                 'ClientIP': audit_data['ClientIPAddress'],
                 'MailClient': audit_data['ClientInfoString'],
-                'MailAccessType': 'Delete',
                 'InternetMessageId': item['InternetMessageId']
             }
 
@@ -315,8 +314,27 @@ class analyze_audit():
                 'subject': subject,
                 'link': link
             })
-            self.write_to_worksheet('mail-deletes', export)
-            self.increase_counter('mail-deletes')
+            self.write_to_worksheet('mail-trashed', export)
+            self.increase_counter('mail-trashed')
+
+    # Analyze soft deleted and hard deleted messages
+    # soft and hard deleted messages appear have additional metadata to retrieve
+    def analyze_deleted_mail(self, audit_data):
+        if 'AffectedItems' in audit_data:
+            for item in audit_data['AffectedItems']:
+                export = {
+                    'CreationDate': audit_data['CreationTime'],
+                    'UserId': audit_data['UserId'],
+                    'MailboxOwner': audit_data['MailboxOwnerUPN'],
+                    'Operation': audit_data['Operation'],
+                    'ClientIP': audit_data['ClientIPAddress'],
+                    'MailClient': audit_data['ClientInfoString'],
+                    'InternetMessageId': item['InternetMessageId'],
+                    'ParentFolder': item['ParentFolder']['Path'],
+                    'Subject': item['Subject'],
+                }
+                self.write_to_worksheet('mail-deleted', export)
+                self.increase_counter('mail-deleted')
 
     # Review messages sent
     def analyze_mail_send(self, audit_data):
@@ -527,7 +545,10 @@ class analyze_audit():
 
                 # do the same for any messages moved to deleted items
                 elif row['Operation'] == "MoveToDeletedItems":
-                    self.analyze_mail_delete(audit_data)
+                    self.analyze_mail_trashed(audit_data)
+
+                if audit_data['Operation'] == "SoftDelete" or audit_data['Operation'] == "HardDelete":
+                    self.analyze_deleted_mail(audit_data)
 
                 # compile Sent Messages in the same way
                 elif row['Operation'] == "Send":
@@ -571,7 +592,7 @@ if __name__ == "__main__":
     analyze.main()
 
     # analyze.counter dict is not returned as an alphabetical list - this creates a new "report" where the
-    # counter names are sorted 
+    # counter names are sorted
     report = {}
     for item in sorted(list(analyze.counter)):
         report[item] = analyze.counter[item]
