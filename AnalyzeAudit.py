@@ -24,19 +24,12 @@ class analyze_audit():
 
         self.cache = {}
 
+        self.start_time =  time.time()
+
         self.counter = {
-            'mail-reads': 0,
-            'mail-sends': 0,
-            'mail-syncs': 0,
-            'mail-deletes': 0,
-            'rules': 0,
-            'file_operations': 0,
-            'logins': 0,
-            'start': time.time(),
             'total_mail_lookups': 0,
             'total_mail_cache_hits': 0,
             'total_mail_cache_misses': 0,
-            'duration': 0
         }
 
         # reuse the DNS cache through execution of program
@@ -110,6 +103,12 @@ class analyze_audit():
             print(op)
         exit()
 
+    def increase_counter(self, item):
+        if item in self.counter:
+            self.counter[item] += 1
+        else:
+            self.counter[item] = 1
+
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
         # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
@@ -128,13 +127,14 @@ class analyze_audit():
             response = self.session.get(
                 f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
                 headers=headers)
-            self.counter['total_mail_cache_misses'] += 1
+            self.increase_counter('total_mail_cache_misses')
             self.cache[internet_message_id] = response.json()
         return self.cache[internet_message_id]
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
         for param in audit_data['Parameters']:
+            export = {}
 
             # if Name in the Parameters, then this is a New Inbox Rule
             if audit_data['Operation'] == "New-InboxRule" and param['Name'] == "Name":
@@ -145,9 +145,6 @@ class analyze_audit():
                     'ip': audit_data.get('ClientIP', ""),
                     'value': param.get('Value'),
                 }
-                self.write_to_worksheet('rules', export)
-                self.counter['rules'] += 1
-
             elif audit_data['Operation'] == "Remove-InboxRule" and param['Name'] == "AlwaysDeleteOutlookRulesBlob":
                 export = {
                     'datetime': audit_data['CreationTime'],
@@ -156,8 +153,8 @@ class analyze_audit():
                     'ip': audit_data['ClientIP'],
                     'value': ""
                 }
-                self.write_to_worksheet('rules', export)
-                self.counter['rules'] += 1
+            self.write_to_worksheet('rules', export)
+            self.increase_counter('rules')
 
     # Parses MailItemsAccessed events, reporting individual messages accessed and pulling metadata from Graph
     def analyze_mail_access(self, audit_data):
@@ -228,7 +225,7 @@ class analyze_audit():
                     'link': link
                 })
                 self.write_to_worksheet('mail-reads', export)
-                self.counter['mail-reads'] +=1
+                self.increase_counter('mail-items')
 
     # Analyze Mail Sync events - the occur against mail folders and can mean that the entirety
     # of the folder was accessed
@@ -252,7 +249,7 @@ class analyze_audit():
         export['mail_folder_path'] = audit_data['Item']['ParentFolder']['Path']
 
         self.write_to_worksheet('mail-syncs', export)
-        self.counter['mail-syncs'] += 1
+        self.increase_counter('mail-syncs')
 
     # same process for deleted messages, will retrive metadata unless the message in unrecoverable
     def analyze_mail_delete(self, audit_data):
@@ -319,7 +316,7 @@ class analyze_audit():
                 'link': link
             })
             self.write_to_worksheet('mail-deletes', export)
-            self.counter['mail-deletes'] +=1
+            self.increase_counter('mail-deletes')
 
     # Review messages sent
     def analyze_mail_send(self, audit_data):
@@ -379,7 +376,7 @@ class analyze_audit():
             'link': link
         })
         self.write_to_worksheet('mail-sends', export)
-        self.counter['mail-sends'] += 1
+        self.increase_counter('mail-sends')
 
     # Analyzes OneDrive and Sharepoint activity
     def analyze_file_folder_operations(self, audit_data):
@@ -400,7 +397,7 @@ class analyze_audit():
             'device_platform': audit_data.get('Platform', ""),
         }
         self.write_to_worksheet('files', export)
-        self.counter['file_operations'] += 1
+        self.increase_counter('file-ops')
 
     # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
     # as Threat Hunting Data is
@@ -433,7 +430,7 @@ class analyze_audit():
                 export['device_os'] = prop['Value']
 
         self.write_to_worksheet('logins', export)
-        self.counter['logins'] += 1
+        self.increase_counter('logins')
 
     # Same as Login Events above - Threat Hunting queries are the preferred method of reviewing
     # sign-in history
@@ -451,7 +448,7 @@ class analyze_audit():
             'device_os': audit_data.get("Platform"),
         }
         self.write_to_worksheet('logins', export)
-        self.counter['logins'] += 1
+        self.increase_counter('logins')
 
     # Does the following:
     # * Changes font size to 13pt to be more legible,
@@ -568,15 +565,17 @@ class analyze_audit():
         elif arg.ops == False and arg.input_file != None:
             self.input = arg.input_file
             self.execute()
-            print(json.dumps(self.cache, indent=4))
 
 if __name__ == "__main__":
     analyze = analyze_audit()
     analyze.main()
-    analyze.counter['duration'] = f"{ round(time.time() - analyze.counter['start'], 2) } seconds"
-    del analyze.counter['start']
 
-    print(json.dumps(analyze.counter, indent=4))
+    # analyze.counter dict is not returned as an alphabetical list - this creates a new "report" where the
+    # counter names are sorted 
+    report = {}
+    for item in sorted(list(analyze.counter)):
+        report[item] = analyze.counter[item]
+    report['duration'] = f"{ round(time.time() - analyze.start_time, 2) } seconds"
 
-
+    print(json.dumps(report, indent=4))
 
