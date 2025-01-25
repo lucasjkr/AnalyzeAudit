@@ -133,28 +133,26 @@ class analyze_audit():
         return self.cache[internet_message_id]
 
     # Identify and log New-InboxRule and Remove-InboxRule events
-    def analyze_mail_rule(self, row):
-        audit_data = json.loads(row['AuditData'])
-
-        for param in json.loads(row['AuditData'])['Parameters']:
+    def analyze_mail_rule(self, audit_data):
+        for param in audit_data['Parameters']:
 
             # if Name in the Parameters, then this is a New Inbox Rule
-            if row['Operation'] == "New-InboxRule" and param['Name'] == "Name":
+            if audit_data['Operation'] == "New-InboxRule" and param['Name'] == "Name":
                 export = {
-                    'datetime': row.get('CreationDate', ""),
-                    'user': row.get('UserId', ""),
-                    'operation': row.get('Operation', ""),
+                    'datetime': audit_data.get('CreationTime', ""),
+                    'user': audit_data.get('UserId', ""),
+                    'operation': audit_data.get('Operation', ""),
                     'ip': audit_data.get('ClientIP', ""),
                     'value': param.get('Value'),
                 }
                 self.write_to_worksheet('rules', export)
                 self.counter['rules'] += 1
 
-            elif row['Operation'] == "Remove-InboxRule" and param['Name'] == "AlwaysDeleteOutlookRulesBlob":
+            elif audit_data['Operation'] == "Remove-InboxRule" and param['Name'] == "AlwaysDeleteOutlookRulesBlob":
                 export = {
-                    'datetime': row['CreationDate'],
-                    'user': row['UserId'],
-                    'operation': row['Operation'],
+                    'datetime': audit_data['CreationTime'],
+                    'user': audit_data['UserId'],
+                    'operation': audit_data['Operation'],
                     'ip': audit_data['ClientIP'],
                     'value': ""
                 }
@@ -162,20 +160,17 @@ class analyze_audit():
                 self.counter['rules'] += 1
 
     # Parses MailItemsAccessed events, reporting individual messages accessed and pulling metadata from Graph
-    def analyze_mail_access(self, row):
-        audit_data = json.loads(row['AuditData'])
-
+    def analyze_mail_access(self, audit_data):
         for folder in audit_data['Folders']:
             for item in folder['FolderItems']:
-
                 # If clientIP is in the IP ignore list, ignore and move to next
                 if audit_data['ClientIPAddress'] in self.ip_ignore_list:
                     continue
 
                 export = {
-                    'CreationDate': row['CreationDate'],
-                    'UserId': row['UserId'],
-                    'Operation': row['Operation'],
+                    'CreationDate': audit_data['CreationTime'],
+                    'UserId': audit_data['UserId'],
+                    'Operation': audit_data['Operation'],
                     'ClientIP': audit_data['ClientIPAddress'],
                     'MailClient': audit_data['ClientInfoString'],
                     'MailAccessType': audit_data['OperationProperties'][0]['Value'],
@@ -237,12 +232,10 @@ class analyze_audit():
 
     # Analyze Mail Sync events - the occur against mail folders and can mean that the entirety
     # of the folder was accessed
-    def analyze_mail_sync(self, row):
-        audit_data = json.loads(row['AuditData'])
-
+    def analyze_mail_sync(self, audit_data):
         export = {}
-        export['datetime'] = row['CreationDate']
-        export['operation'] = row['Operation']
+        export['datetime'] = audit_data['CreationTime']
+        export['operation'] = audit_data['Operation']
         export['user'] = audit_data['UserId']
         export['mailbox'] = audit_data['MailboxOwnerUPN']
         export['user_ip'] = audit_data['ClientIP']
@@ -262,13 +255,12 @@ class analyze_audit():
         self.counter['mail-syncs'] += 1
 
     # same process for deleted messages, will retrive metadata unless the message in unrecoverable
-    def analyze_mail_delete(self, row):
-        audit_data = json.loads(row['AuditData'])
+    def analyze_mail_delete(self, audit_data):
         for item in audit_data['AffectedItems']:
             export = {
-                'CreationDate': row['CreationDate'],
-                'UserId': row['UserId'],
-                'Operation': row['Operation'],
+                'CreationDate': audit_data['CreationTime'],
+                'UserId': audit_data['UserId'],
+                'Operation': audit_data['Operation'],
                 'ClientIP': audit_data['ClientIPAddress'],
                 'MailClient': audit_data['ClientInfoString'],
                 'MailAccessType': 'Delete',
@@ -330,12 +322,11 @@ class analyze_audit():
             self.counter['mail-deletes'] +=1
 
     # Review messages sent
-    def analyze_mail_send(self, row):
-        audit_data = json.loads(row['AuditData'])
+    def analyze_mail_send(self, audit_data):
         export = {
-            'CreationDate': row['CreationDate'],
-            'UserId': row['UserId'],
-            'Operation': row['Operation'],
+            'CreationDate': audit_data['CreationTime'],
+            'UserId': audit_data['UserId'],
+            'Operation': audit_data['Operation'],
             'ClientIP': audit_data['ClientIPAddress'],
             'MailClient': audit_data['ClientInfoString'],
             'MailAccessType': 'Send',
@@ -391,8 +382,7 @@ class analyze_audit():
         self.counter['mail-sends'] += 1
 
     # Analyzes OneDrive and Sharepoint activity
-    def analyze_file_folder_operations(self, row):
-        audit_data = json.loads(row['AuditData'])
+    def analyze_file_folder_operations(self, audit_data):
         export = {
             'date': audit_data['CreationTime'],
             'operation': audit_data['Operation'],
@@ -414,8 +404,7 @@ class analyze_audit():
 
     # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
     # as Threat Hunting Data is
-    def analyze_login_events(self, row):
-        audit_data = json.loads(row['AuditData'])
+    def analyze_login_events(self, audit_data):
         export = {
             'date': audit_data.get('CreationTime', ""),
             'operation': audit_data['Operation'],
@@ -448,8 +437,7 @@ class analyze_audit():
 
     # Same as Login Events above - Threat Hunting queries are the preferred method of reviewing
     # sign-in history
-    def analyze_signin_events(self, row):
-        audit_data = json.loads(row['AuditData'])
+    def analyze_signin_events(self, audit_data):
         export = {
             'date': audit_data.get('CreationTime', ""),
             'operation': audit_data['Operation'],
@@ -518,12 +506,13 @@ class analyze_audit():
         with open(self.input) as csv_file:
             csv_reader = csv.DictReader(csv_file)
             for row in csv_reader:
+                audit_data = json.loads(row['AuditData'])
 
                 # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
                 # a threat actor has modified inbox rules. The user should review the created/changed rules and delete
                 # if it's malicious
                 if "Rule" in row['Operation']:
-                    self.analyze_mail_rule(row)
+                    self.analyze_mail_rule(audit_data)
 
                 # When AuditData contains "Folders", that indicates it contains records of mail items accessed. Anything else will be ignored for now.
                 # In the future, should report on mailbox rules being created, and eventually OneDrive/Sharepoint activity. Also should somehow alert
@@ -533,29 +522,29 @@ class analyze_audit():
                 # * Bind just means one or more messages retrieved
                 # * Throttled means that logging was throttled - more messages were retrieved than the logs show
                 elif row['Operation'] == "MailItemsAccessed" and "Folders" in row['AuditData']:
-                    self.analyze_mail_access(row)
+                    self.analyze_mail_access(audit_data)
 
                 # Mail folder syncs - much more worrisome
                 elif row['Operation'] == "MailItemsAccessed" and "Folders" not in row['AuditData']:
-                    self.analyze_mail_sync(row)
+                    self.analyze_mail_sync(audit_data)
 
                 # do the same for any messages moved to deleted items
                 elif row['Operation'] == "MoveToDeletedItems":
-                    self.analyze_mail_delete(row)
+                    self.analyze_mail_delete(audit_data)
 
                 # compile Sent Messages in the same way
                 elif row['Operation'] == "Send":
-                    self.analyze_mail_send(row)
+                    self.analyze_mail_send(audit_data)
 
                 # OneDrive and Sharepoint Operations
                 elif "File" in row['Operation'] or "Folder" in row['Operation']:
-                    self.analyze_file_folder_operations(row)
+                    self.analyze_file_folder_operations(audit_data)
 
                 elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
-                    self.analyze_login_events(row)
+                    self.analyze_login_events(audit_data)
 
                 elif row['Operation'] == "SignInEvent":
-                    self.analyze_signin_events(row)
+                    self.analyze_signin_events(audit_data)
 
                 self.save_and_cleanup_excel_file()
 
