@@ -1,5 +1,4 @@
 import argparse, csv, json, msal, logging, os, time
-# import requests
 import requests_cache
 from datetime import timedelta
 from datetime import datetime
@@ -42,7 +41,7 @@ class analyze_audit():
 
         # reuse the DNS cache through execution of program
         # https://pypi.org/project/requests-cache/
-        self.session = requests_cache.CachedSession('session_dns_cache', expire_after=360)
+        self.session = requests_cache.CachedSession('session_dns_cache', expire_after=7200)
 
         # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
@@ -399,8 +398,6 @@ class analyze_audit():
             'operation': audit_data['Operation'],
             'app_used': audit_data['AppAccessContext']['ClientAppName'],
             'item_type': audit_data['ItemType'],
-            # 'item_site_url': audit_data['SiteUrl'],
-            # 'item_path': audit_data['SourceRelativeUrl'],
             'file_name': audit_data['SourceFileName'],
             'full_url': f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}",
 
@@ -568,11 +565,11 @@ class analyze_audit():
         args.add_argument('--ops',
                             default=False,
                             action="store_true",
-                            help="(optional) Enter the email (user@example.com) of the user")
+                            help="Adding this flag just scans the audit file and outputs the names of operations it found")
         args.add_argument('input_file',
                             nargs='?',
                             default=None,
-                            help="(optional) Enter the email (user@example.com) of the user")
+                            help="The path to the audit export file (csv) that you want to process.")
         arg = args.parse_args()
         self.input = Path(arg.input_file)
 
@@ -582,6 +579,7 @@ class analyze_audit():
         elif arg.ops == False and arg.input_file != None:
             self.input = arg.input_file
             self.execute()
+            print(json.dumps(self.cache, indent=4))
 
 if __name__ == "__main__":
     analyze = analyze_audit()
