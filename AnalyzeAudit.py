@@ -142,8 +142,6 @@ class analyze_audit():
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
         for param in audit_data['Parameters']:
-            export = {}
-
             # if Name in the Parameters, then this is a New Inbox Rule
             if audit_data['Operation'] == "New-InboxRule" and param['Name'] == "Name":
                 export = {
@@ -153,6 +151,8 @@ class analyze_audit():
                     'ip': audit_data.get('ClientIP', ""),
                     'value': param.get('Value'),
                 }
+                self.write_to_worksheet('rules', export)
+                self.increase_counter('rules')
             elif audit_data['Operation'] == "Remove-InboxRule" and param['Name'] == "AlwaysDeleteOutlookRulesBlob":
                 export = {
                     'datetime': audit_data['CreationTime'],
@@ -161,8 +161,8 @@ class analyze_audit():
                     'ip': audit_data['ClientIP'],
                     'value': ""
                 }
-            self.write_to_worksheet('rules', export)
-            self.increase_counter('rules')
+                self.write_to_worksheet('rules', export)
+                self.increase_counter('rules')
 
     # Parses MailItemsAccessed events, reporting individual messages accessed and pulling metadata from Graph
     def analyze_mail_access(self, audit_data):
@@ -492,6 +492,11 @@ class analyze_audit():
         for sheet in self.workbook.sheetnames:
             worksheet = self.workbook[sheet]
 
+            # Make the entire first row bold
+            for cell in worksheet[1]:
+                cell.font = Font(bold=True, size=13)
+                cell.fill = PatternFill(start_color="ededed", end_color="ededed", fill_type="solid")
+
             # bump up fon font size and change URLs into working hyperlinks
             for row in worksheet:
                 for cell in row:
@@ -502,13 +507,7 @@ class analyze_audit():
                         cell.value = "View on the Web"
                         # Issue: Neither of the methods below make the link LOOK like a hyperlink
                         # cell.font = Font(bold=True, size=13, underline='single', color='0563C1')
-                        # cell.style = "Hyperlink"
-
-            # Make the entire first row bold
-            for cell in worksheet[1]:
-                cell.font = Font(bold=True, size=13)
-                cell.fill = PatternFill(start_color="ededed", end_color="ededed", fill_type="solid")
-
+                        cell.style = "Hyperlink"
             # Iterate over all columns and adjust their widths
             # https://python-bloggers.com/2023/05/how-to-automatically-adjust-excel-column-widths-in-openpyxl/
             for column in worksheet.columns:
@@ -544,10 +543,6 @@ class analyze_audit():
                 if "Rule" in row['Operation']:
                     self.analyze_mail_rule(audit_data)
 
-                # When AuditData contains "Folders", that indicates it contains records of mail items accessed. Anything else will be ignored for now.
-                # In the future, should report on mailbox rules being created, and eventually OneDrive/Sharepoint activity. Also should somehow alert
-                # when it finds "Sync" events rather than "Bind", and when Throttled is true.
-                #
                 # * Sync means the entire mailbox was synced, rather than just batches of messages being retrieved.
                 # * Bind just means one or more messages retrieved
                 # * Throttled means that logging was throttled - more messages were retrieved than the logs show
@@ -562,7 +557,9 @@ class analyze_audit():
                 elif row['Operation'] == "MoveToDeletedItems":
                     self.analyze_mail_trashed(audit_data)
 
-                if audit_data['Operation'] == "SoftDelete" or audit_data['Operation'] == "HardDelete":
+                # report soft deleted and hard delete messages. No metadata for these types of messages, but subject
+                # is still accessible.
+                elif audit_data['Operation'] == "SoftDelete" or audit_data['Operation'] == "HardDelete":
                     self.analyze_deleted_mail(audit_data)
 
                 # compile Sent Messages in the same way
