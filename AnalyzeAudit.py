@@ -7,6 +7,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 import urllib.parse
+import sqlite3
 
 class analyze_audit():
     input: str
@@ -22,15 +23,9 @@ class analyze_audit():
         # ip_ignore_list .env entry to JSON list. If entry doesn't exist in .env file, then create an empty list
         self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
 
-        self.cache = {}
-
+        self.counter = {}
         self.start_time =  time.time()
 
-        self.counter = {
-            'total_mail_lookups': 0,
-            'total_mail_cache_hits': 0,
-            'total_mail_cache_misses': 0,
-        }
 
         # reuse the DNS cache through execution of program
         # https://pypi.org/project/requests-cache/
@@ -42,6 +37,15 @@ class analyze_audit():
 
         # container for target notebook for results
         self.workbook = None
+
+        # message cache db:
+        self.db = sqlite3.connect("message_cache.sqlite")
+        self.cursor = self.db.cursor()
+        self.cursor.execute("CREATE TABLE IF NOT EXISTS messages (message_id TEXT, value TEXT);")
+        self.cursor.execute("CREATE INDEX IF NOT EXISTS message_index ON messages(message_id ASC);")
+
+    def __exit__(self):
+        self.db.close()
 
     def create_empty_workbook(self):
         self.workbook = Workbook()
@@ -114,10 +118,13 @@ class analyze_audit():
         # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
         # aren't allowed in a URL normally
         internet_message_id = urllib.parse.quote(internet_message_id)
-        self.counter['total_mail_lookups'] += 1
 
-        if internet_message_id in self.cache:
-            self.counter['total_mail_cache_hits'] += 1
+        self.increase_counter('total_mail_lookups')
+
+        cache = self.cursor.execute("SELECT * FROM messages WHERE message_id = ?", (internet_message_id,)).fetchone()
+        if cache != None:
+            self.increase_counter('total_mail_cache_hits')
+            return json.loads(cache[1])
 
         else:
             headers = {
@@ -128,8 +135,9 @@ class analyze_audit():
                 f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
                 headers=headers)
             self.increase_counter('total_mail_cache_misses')
-            self.cache[internet_message_id] = response.json()
-        return self.cache[internet_message_id]
+            self.cursor.execute("INSERT INTO messages (message_id, value) VALUES (?, ?)", (internet_message_id, json.dumps(response.json())))
+            # self.db.commit()
+        return response.json()
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
@@ -401,7 +409,8 @@ class analyze_audit():
         export = {
             'date': audit_data['CreationTime'],
             'operation': audit_data['Operation'],
-            'app_used': audit_data['AppAccessContext']['ClientAppName'],
+            'app_used': "",
+            # 'app_used': audit_data['AppAccessContext']['ClientAppName'],
             'item_type': audit_data['ItemType'],
             'file_name': audit_data['SourceFileName'],
             'full_url': f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}",
@@ -414,6 +423,12 @@ class analyze_audit():
             'user_agent': audit_data.get('UserAgent', ""),
             'device_platform': audit_data.get('Platform', ""),
         }
+
+        try:
+            export['app_used'] = audit_data['AppAccessContext']['ClientAppName']
+        except Exception:
+            export['app_used'] = ""
+
         self.write_to_worksheet('files', export)
         self.increase_counter('file-ops')
 
@@ -564,7 +579,7 @@ class analyze_audit():
                 elif row['Operation'] == "SignInEvent":
                     self.analyze_signin_events(audit_data)
 
-                self.save_and_cleanup_excel_file()
+        self.save_and_cleanup_excel_file()
 
 
     def main(self):
