@@ -531,10 +531,14 @@ class analyze_audit():
 
     def execute(self):
         self.create_empty_workbook()
-
+        i = 0
+        print(i, end='')
         with open(self.input) as csv_file:
             csv_reader = csv.DictReader(csv_file)
             for row in csv_reader:
+                i = i + 1
+                print(f"\rCSV row: {i}", end='', flush=True)
+
                 audit_data = json.loads(row['AuditData'])
 
                 # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
