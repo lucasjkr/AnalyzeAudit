@@ -7,11 +7,11 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 import urllib.parse
-import sqlite3
+# import sqlite3
 
 class analyze_audit():
     input: str
-    cache: None
+    # cache: None
 
     def __init__(self):
         # input file
@@ -27,9 +27,9 @@ class analyze_audit():
         self.start_time =  time.time()
 
 
-        # reuse the DNS cache through execution of program
+        # cache graph requests for 1 week (604800 seconds)
         # https://pypi.org/project/requests-cache/
-        self.session = requests_cache.CachedSession('session_dns_cache', expire_after=7200)
+        self.session = requests_cache.CachedSession('requests_cache', expire_after=604800)
 
         # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
@@ -38,11 +38,11 @@ class analyze_audit():
         # container for target notebook for results
         self.workbook = None
 
-        # message cache db:
-        self.db = sqlite3.connect("message_cache.sqlite")
-        self.cursor = self.db.cursor()
-        self.cursor.execute("CREATE TABLE IF NOT EXISTS messages (message_id TEXT, value TEXT);")
-        self.cursor.execute("CREATE INDEX IF NOT EXISTS message_index ON messages(message_id ASC);")
+        # # message cache db:
+        # self.db = sqlite3.connect("message_cache.sqlite")
+        # self.cursor = self.db.cursor()
+        # self.cursor.execute("CREATE TABLE IF NOT EXISTS messages (message_id TEXT, value TEXT);")
+        # self.cursor.execute("CREATE INDEX IF NOT EXISTS message_index ON messages(message_id ASC);")
 
     def __exit__(self):
         self.db.close()
@@ -115,29 +115,40 @@ class analyze_audit():
 
     # Looks up each message from the Graph API in order to obtain metadata to assist with the review.
     def get_message(self, user, internet_message_id):
-        # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
-        # aren't allowed in a URL normally
         internet_message_id = urllib.parse.quote(internet_message_id)
-
-        self.increase_counter('total_mail_lookups')
-
-        cache = self.cursor.execute("SELECT * FROM messages WHERE message_id = ?", (internet_message_id,)).fetchone()
-        if cache != None:
-            self.increase_counter('total_mail_cache_hits')
-            return json.loads(cache[1])
-
-        else:
-            headers = {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + self.bearer_token()
-            }
-            response = self.session.get(
-                f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
-                headers=headers)
-            self.increase_counter('total_mail_cache_misses')
-            self.cursor.execute("INSERT INTO messages (message_id, value) VALUES (?, ?)", (internet_message_id, json.dumps(response.json())))
-            # self.db.commit()
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': 'Bearer ' + self.bearer_token()
+        }
+        response = self.session.get(
+            f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
+            headers=headers)
         return response.json()
+
+        # # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
+        # # aren't allowed in a URL normally
+        # internet_message_id = urllib.parse.quote(internet_message_id)
+        #
+        # self.increase_counter('total_mail_lookups')
+        #
+        # cache = self.cursor.execute("SELECT * FROM messages WHERE message_id = ?", (internet_message_id,)).fetchone()
+        # if cache != None:
+        #     self.increase_counter('total_mail_cache_hits')
+        #     print("cached")
+        #     return json.loads(cache[1])
+        #
+        # else:
+        #     headers = {
+        #         'Content-Type': 'application/json',
+        #         'Authorization': 'Bearer ' + self.bearer_token()
+        #     }
+        #     response = self.session.get(
+        #         f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
+        #         headers=headers)
+        #     self.increase_counter('total_mail_cache_misses')
+        #     self.cursor.execute("INSERT INTO messages (message_id, value) VALUES (?, ?)", (internet_message_id, json.dumps(response.json())))
+        #     # self.db.commit()
+        # return response.json()
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
