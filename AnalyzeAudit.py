@@ -344,6 +344,16 @@ class analyze_audit():
     def analyze_deleted_mail(self, audit_data):
         if 'AffectedItems' in audit_data:
             for item in audit_data['AffectedItems']:
+                if 'InternetMessageId' in item:
+                    imid = item['InternetMessageId']
+                else:
+                    imid = ""
+
+                if 'Subject' in item:
+                    subj = item['Subject']
+                else:
+                    subj = ""
+
                 export = {
                     'CreationDate': audit_data['CreationTime'],
                     'UserId': audit_data['UserId'],
@@ -351,9 +361,9 @@ class analyze_audit():
                     'Operation': audit_data['Operation'],
                     'ClientIP': audit_data['ClientIPAddress'],
                     'MailClient': audit_data['ClientInfoString'],
-                    'InternetMessageId': item['InternetMessageId'],
+                    'InternetMessageId': imid,
                     'ParentFolder': item['ParentFolder']['Path'],
-                    'Subject': item['Subject'],
+                    'Subject': subj,
                 }
                 self.write_to_worksheet('mail-deleted', export)
                 self.increase_counter('mail-deleted')
@@ -629,4 +639,3 @@ if __name__ == "__main__":
     report['duration'] = f"{ round(time.time() - analyze.start_time, 2) } seconds"
 
     print(json.dumps(report, indent=4))
-
