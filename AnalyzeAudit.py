@@ -123,7 +123,10 @@ class analyze_audit():
         response = self.session.get(
             f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
             headers=headers)
-        return response.json()
+        try:
+            return response.json()
+        except Exception:
+            return {}
 
         # # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
         # # aren't allowed in a URL normally
