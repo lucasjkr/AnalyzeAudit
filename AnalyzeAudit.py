@@ -38,18 +38,11 @@ class analyze_audit():
         # container for target notebook for results
         self.workbook = None
 
-        # # message cache db:
-        # self.db = sqlite3.connect("message_cache.sqlite")
-        # self.cursor = self.db.cursor()
-        # self.cursor.execute("CREATE TABLE IF NOT EXISTS messages (message_id TEXT, value TEXT);")
-        # self.cursor.execute("CREATE INDEX IF NOT EXISTS message_index ON messages(message_id ASC);")
-
     def __exit__(self):
         self.db.close()
 
     def create_empty_workbook(self):
         self.workbook = Workbook()
-        # del self.workbook[self.workbook.sheetnames[0]]
 
     def write_to_worksheet(self, sheet, data):
         # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
@@ -128,31 +121,6 @@ class analyze_audit():
         except Exception:
             return {}
 
-        # # to URL encode the internet_message_id, because it could contain special characters (+, -, _, @) that
-        # # aren't allowed in a URL normally
-        # internet_message_id = urllib.parse.quote(internet_message_id)
-        #
-        # self.increase_counter('total_mail_lookups')
-        #
-        # cache = self.cursor.execute("SELECT * FROM messages WHERE message_id = ?", (internet_message_id,)).fetchone()
-        # if cache != None:
-        #     self.increase_counter('total_mail_cache_hits')
-        #     print("cached")
-        #     return json.loads(cache[1])
-        #
-        # else:
-        #     headers = {
-        #         'Content-Type': 'application/json',
-        #         'Authorization': 'Bearer ' + self.bearer_token()
-        #     }
-        #     response = self.session.get(
-        #         f"https://graph.microsoft.com/v1.0/users/{user}/messages?$filter=internetMessageId eq '{internet_message_id}'",
-        #         headers=headers)
-        #     self.increase_counter('total_mail_cache_misses')
-        #     self.cursor.execute("INSERT INTO messages (message_id, value) VALUES (?, ?)", (internet_message_id, json.dumps(response.json())))
-        #     # self.db.commit()
-        # return response.json()
-
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
         for param in audit_data['Parameters']:
@@ -205,7 +173,8 @@ class analyze_audit():
                     print(f"{export['InternetMessageId']} - {e}\n")
                     continue
 
-                # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
+                # If data in any of these fields is missing, then the message was deleted long enough ago that metadata
+                # cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
                 # retrieve message metadata from Microsoft
                 try:
                     date = message['value'][0]['receivedDateTime']
