@@ -43,6 +43,7 @@ class analyze_audit():
 
     def create_empty_workbook(self):
         self.workbook = Workbook()
+        # del self.workbook[self.workbook.sheetnames[0]]
 
     def write_to_worksheet(self, sheet, data):
         # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
@@ -121,17 +122,52 @@ class analyze_audit():
         except Exception:
             return {}
 
+    def analyze_update_inbox_rule(self, audit_data):
+        # if you make any changes to the structure of the export field which is written to Excel,
+        # those changes must also be made to "analyze_mail_rule" function below
+        export = {
+            'datetime': audit_data.get('CreationTime', ""),
+            'user': audit_data.get('MailboxOwnerUPN', ""),
+            'ip': audit_data.get('ClientIP', ""),
+        }
+
+        for operation in audit_data['OperationProperties']:
+            if operation['Name'] == "RuleOperation":
+                export['operation'] = operation['Value']
+            if operation['Name'] == "RuleId":
+                export['rule_id'] = operation['Value']
+            if operation['Name'] == "RuleCondition":
+                export['rule_condition'] = operation['Value']
+            if operation['Name'] == "RuleActions":
+                export['rule_actions'] = operation['Value']
+            if operation['Name'] == "RuleName" and 'Value' in operation:
+                export['rule_name'] = operation['Value']
+            else:
+                export['rule_name'] = ""
+
+        # print(json.dumps(export, indent=4))
+        self.write_to_worksheet('rules', export)
+        self.increase_counter('rules')
+
+
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
+        # if you make any changes to the structure of the export field which is written to Excel,
+        # those changes must also be made to "analyze_update_inbox_rule" function above
+        print(json.dumps(audit_data, indent=4))
+
         for param in audit_data['Parameters']:
             # if Name in the Parameters, then this is a New Inbox Rule
             if audit_data['Operation'] == "New-InboxRule" and param['Name'] == "Name":
                 export = {
                     'datetime': audit_data.get('CreationTime', ""),
                     'user': audit_data.get('UserId', ""),
-                    'operation': audit_data.get('Operation', ""),
                     'ip': audit_data.get('ClientIP', ""),
-                    'value': param.get('Value'),
+                    'operation': audit_data.get('Operation', ""),
+                    'rule_name': param.get('Value'),
+                    'rule_id': "",
+                    'rule_condition': "",
+                    'rule_actions': ''
                 }
                 self.write_to_worksheet('rules', export)
                 self.increase_counter('rules')
@@ -139,9 +175,12 @@ class analyze_audit():
                 export = {
                     'datetime': audit_data['CreationTime'],
                     'user': audit_data['UserId'],
-                    'operation': audit_data['Operation'],
                     'ip': audit_data['ClientIP'],
-                    'value': ""
+                    'operation': audit_data['Operation'],
+                    'rule_name': "",
+                    'rule_id': "",
+                    'rule_condition': "",
+                    'rule_actions': ''
                 }
                 self.write_to_worksheet('rules', export)
                 self.increase_counter('rules')
@@ -160,11 +199,17 @@ class analyze_audit():
                     'Operation': audit_data['Operation'],
                     'ClientIP': audit_data['ClientIPAddress'],
                     'MailClient': audit_data['ClientInfoString'],
-                    'MailAccessType': audit_data['OperationProperties'][0]['Value'],
-                    'Throttled': audit_data['OperationProperties'][1]['Value'],
+                    'MailAccessType': "",
+                    'Throttled': "",
                     'OperationCount': audit_data['OperationCount'],
                     'InternetMessageId': item['InternetMessageId']
                 }
+
+                for property in audit_data['OperationProperties']:
+                    if property['Name'] == "MailAccessType" and property['Name'] == "Bind":
+                        export['MailAccessType'] = "Bind"
+                    elif property['Name'] == "IsThrottled":
+                        export['Throttled'] = property['Name']
 
                 # retrieve message metadata from Microsoft
                 try:
@@ -173,8 +218,7 @@ class analyze_audit():
                     print(f"{export['InternetMessageId']} - {e}\n")
                     continue
 
-                # If data in any of these fields is missing, then the message was deleted long enough ago that metadata
-                # cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
+                # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
                 # retrieve message metadata from Microsoft
                 try:
                     date = message['value'][0]['receivedDateTime']
@@ -222,17 +266,21 @@ class analyze_audit():
     # of the folder was accessed
     def analyze_mail_sync(self, audit_data):
         export = {}
+        if 'ClientProcessName' in audit_data:
+            export['user_app'] = audit_data['ClientProcessName']
+        else:
+            export['user_app'] = ""
         export['datetime'] = audit_data['CreationTime']
         export['operation'] = audit_data['Operation']
         export['user'] = audit_data['UserId']
         export['mailbox'] = audit_data['MailboxOwnerUPN']
         export['user_ip'] = audit_data['ClientIP']
-        export['user_app'] = audit_data['ClientProcessName']
+        # export['user_app'] = audit_data['ClientProcessName']
         export['user_agent'] = audit_data['ClientInfoString']
 
         for prop in audit_data['OperationProperties']:
             if prop['Name'] == "MailAccessType":
-                export['access'] = prop['Value']    # This will usually be Sync
+                export['access'] = prop['Value']
             if prop['Name'] == "IsThrottled":
                 export['throttled'] = prop['Value']
 
@@ -251,18 +299,22 @@ class analyze_audit():
                 'Operation': audit_data['Operation'],
                 'ClientIP': audit_data['ClientIPAddress'],
                 'MailClient': audit_data['ClientInfoString'],
-                'InternetMessageId': item['InternetMessageId']
             }
 
             # If clientIP is in the IP ignore list, ignore and move to next
             if audit_data['ClientIPAddress'] in self.ip_ignore_list:
                 continue
 
+            try:
+                internet_message_id = item['InternetMessageId']
+            except Exception:
+                internet_message_id = ""
+
             # retrieve message metadata from Microsoft
             try:
-                message = self.get_message(export['UserId'], export['InternetMessageId'])
+                message = self.get_message(export['UserId'], internet_message_id)
             except Exception as e:
-                print(f"{export['InternetMessageId']} - {e}\n")
+                print(f"{internet_message_id} - {e}\n")
                 continue
 
             # If data in any of these fields is missing, then the message was deleted long enough ago that metadata cannot be retrieved. Auditlog will still reflect the internet message id that was retrieved but nothing more.
@@ -299,6 +351,7 @@ class analyze_audit():
             # update the export dictionary and write line to file
             export.update({
                 'folder': mail_folder,
+                'internet_message_id': internet_message_id,
                 'date': date,
                 'sender': sender,
                 'sender_name': sender_name,
@@ -537,8 +590,11 @@ class analyze_audit():
                 # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
                 # a threat actor has modified inbox rules. The user should review the created/changed rules and delete
                 # if it's malicious
-                if "Rule" in row['Operation']:
+                if "New-InboxRule" in row['Operation'] or "Remove-InboxRule" in "Operation":
                     self.analyze_mail_rule(audit_data)
+
+                if "UpdateInboxRule" in row['Operation']:
+                    self.analyze_update_inbox_rule(audit_data)
 
                 # * Sync means the entire mailbox was synced, rather than just batches of messages being retrieved.
                 # * Bind just means one or more messages retrieved
@@ -608,3 +664,4 @@ if __name__ == "__main__":
     report['duration'] = f"{ round(time.time() - analyze.start_time, 2) } seconds"
 
     print(json.dumps(report, indent=4))
+
