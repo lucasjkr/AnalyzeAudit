@@ -552,24 +552,35 @@ class AnalyzeMicrosoftAuditLog():
     def analyze_sharing_events(self, audit_data):
         export = {
             'timestamp': audit_data.get('CreationTime', ""),
+            'operation': audit_data.get('Operation', ""),
             'user': audit_data.get('UserId', ""),
+            'user_ip': audit_data.get('ClientIP', ""),
             'target_user': audit_data.get('TargetUserOrGroupName', ""),
-            'item_name': audit_data.get('ItemName', ""),
+            'scope': audit_data.get('SharingLinkScope', ""),
+            'permission': audit_data.get('Permission', ""),
             'url': audit_data.get('ObjectId', ""),
-            'operation': audit_data.get('Operation', "")
+            'owner': audit_data.get('SiteUrl', "").split("/")[-1],
+            'item_name': audit_data.get('SourceRelativeUrl', ""),
+            'user_agent': audit_data.get('UserAgent', ""),
+            'browser': audit_data.get('BrowserName', ""),
+            'browser_version': audit_data.get('BrowserVersion', ""),
+            'application': audit_data.get('ApplicationDisplayName', ""),
+            'managed_device': audit_data.get('IsManagedDevice', "")
         }
 
-        # Determine the worksheet name based on the operation type
-        operation_type = audit_data.get('Operation', "")
-        if "SecureLink" in operation_type:
-            sheet_name = 'secure-links'
+        ### Uncomment to put each type of link activity into its own tab
+        # # Determine the worksheet name based on the operation type
+        # operation_type = audit_data.get('Operation', "")
+        # if "SecureLink" in operation_type:
+        #     sheet_name = 'secure-links'
+        # elif "SharingLink" in operation_type:
+        #     sheet_name = 'sharing-links'
+        # elif "CompanyLink" in operation_type or "AnonymousLink" in operation_type:
+        #     sheet_name = 'public-links'
+        # else:
+        #     sheet_name = 'other-sharing-events'
 
-        elif "SharingLink" in operation_type:
-            sheet_name = 'sharing-links'
-        elif "CompanyLink" in operation_type or "AnonymousLink" in operation_type:
-            sheet_name = 'public-links'
-        else:
-            sheet_name = 'other-sharing-events'
+        sheet_name = "link-activity"
 
         self.write_to_worksheet(sheet_name, export)
         self.increase_counter(sheet_name)
@@ -682,14 +693,10 @@ class AnalyzeMicrosoftAuditLog():
                 ]:
                     self.analyze_sharing_events(audit_data)
 
-
                 elif row['Operation'] in [
                     "FolderCreated", "FolderModified", "FolderRenamed"
                 ]:
                     self.analyze_combined_file_operations(audit_data)
-
-
-
 
                 elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
                     self.analyze_login_events(audit_data)
