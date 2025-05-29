@@ -42,7 +42,7 @@ class AnalyzeMicrosoftAuditLog():
 
     def write_to_worksheet(self, sheet, data):
         # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
-        if sheet not in self.workbook:
+        if sheet not in self.workbook.sheetnames:
             worksheet = self.workbook.create_sheet(title=sheet)
             worksheet.append(list(data.keys()))
 
@@ -506,12 +506,14 @@ class AnalyzeMicrosoftAuditLog():
             'operation': audit_data['Operation'],
             'workload': audit_data.get('Workload', ""),
             'username': audit_data.get('UserId', ""),
-            'ip': audit_data.get('ClientIp', ""),
+            'ip': audit_data.get('ClientIP', ""),
             'status': "",
             'user_agent': "",
             'result': "",
             'device_name': "",
-            'device_os': ""
+            'device_os': "",
+            "is_compliant": "",
+            'error': audit_data.get('LogonError', "").replace("null", "")
         }
 
         for prop in audit_data['ExtendedProperties']:
@@ -527,6 +529,8 @@ class AnalyzeMicrosoftAuditLog():
                 export['device_name'] = prop['Value']
             elif prop['Name'] == "OS":
                 export['device_os'] = prop['Value']
+            elif prop['Name'] == "IsCompliant":
+                export['is_compliant'] = True
 
         self.write_to_worksheet('logins', export)
         self.increase_counter('logins')
@@ -645,7 +649,7 @@ class AnalyzeMicrosoftAuditLog():
                 # If operation contains "Rule" (as in New-InboxRule, Remove-InboxRule or any other, then it could indicate
                 # a threat actor has modified inbox rules. The user should review the created/changed rules and delete
                 # if it's malicious
-                if "New-InboxRule" in row['Operation'] or "Remove-InboxRule" in "Operation":
+                if "New-InboxRule" in row['Operation'] or "Remove-InboxRule" in row['Operation']:
                     self.analyze_mail_rule(audit_data)
 
                 if "UpdateInboxRule" in row['Operation']:
@@ -698,7 +702,9 @@ class AnalyzeMicrosoftAuditLog():
                 ]:
                     self.analyze_combined_file_operations(audit_data)
 
-                elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
+                elif row['Operation'] in [
+                    "UserLoggedIn", "UserLoginFailed"
+                ]:
                     self.analyze_login_events(audit_data)
 
                 elif row['Operation'] == "SignInEvent":
