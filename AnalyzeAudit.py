@@ -1,5 +1,6 @@
 import argparse, csv, json, msal, logging, os, time
 import requests_cache
+from requests_cache import DO_NOT_CACHE, NEVER_EXPIRE, EXPIRE_IMMEDIATELY, CachedSession
 from datetime import timedelta
 from datetime import datetime
 from dotenv import dotenv_values
@@ -7,7 +8,6 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 import urllib.parse
-# import sqlite3
 
 class analyze_audit():
     input: str
@@ -29,7 +29,7 @@ class analyze_audit():
 
         # cache graph requests for 1 week (604800 seconds)
         # https://pypi.org/project/requests-cache/
-        self.session = requests_cache.CachedSession('requests_cache', expire_after=604800)
+        self.session = requests_cache.CachedSession('requests_cache', expire_after=NEVER_EXPIRE)
 
         # bearer token for Graph API - make sure the first token is already expired
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
@@ -144,11 +144,8 @@ class analyze_audit():
                 export['rule_name'] = operation['Value']
             else:
                 export['rule_name'] = ""
-
-        # print(json.dumps(export, indent=4))
         self.write_to_worksheet('rules', export)
         self.increase_counter('rules')
-
 
     # Identify and log New-InboxRule and Remove-InboxRule events
     def analyze_mail_rule(self, audit_data):
@@ -197,18 +194,23 @@ class analyze_audit():
                     'CreationDate': audit_data['CreationTime'],
                     'UserId': audit_data['UserId'],
                     'Operation': audit_data['Operation'],
+                    'Link': "",
+                    'Date Received': None,
+                    'Sender': "",
+                    'Sender Name': "",
+                    'Subject': "",
+                    'Folder': "",
                     'ClientIP': audit_data['ClientIPAddress'],
                     'MailClient': audit_data['ClientInfoString'],
-                    'MailAccessType': "",
                     'Throttled': "",
-                    'OperationCount': audit_data['OperationCount'],
                     'InternetMessageId': item['InternetMessageId']
                 }
 
                 for property in audit_data['OperationProperties']:
                     if property['Name'] == "MailAccessType" and property['Name'] == "Bind":
                         export['MailAccessType'] = "Bind"
-                    elif property['Name'] == "IsThrottled":
+
+                    if property['Name'] == "IsThrottled":
                         export['Throttled'] = property['Name']
 
                 # retrieve message metadata from Microsoft
@@ -252,12 +254,12 @@ class analyze_audit():
 
                 # update the export dictionary and write line to file
                 export.update({
-                    'folder': mail_folder,
-                    'date': date,
-                    'sender': sender,
-                    'sender_name': sender_name,
-                    'subject': subject,
-                    'link': link
+                    'Folder': mail_folder,
+                    'Date Received': date,
+                    'Sender': sender,
+                    'Sender Name': sender_name,
+                    'Subject': subject,
+                    'Link': link
                 })
                 self.write_to_worksheet('mail-reads', export)
                 self.increase_counter('mail-items')
@@ -297,8 +299,15 @@ class analyze_audit():
                 'CreationDate': audit_data['CreationTime'],
                 'UserId': audit_data['UserId'],
                 'Operation': audit_data['Operation'],
+                'Link': "",
+                'Date Received': "",
+                'Sender': "",
+                'Sender Name': "",
+                'Subject': "",
+                'Folder': "",
                 'ClientIP': audit_data['ClientIPAddress'],
                 'MailClient': audit_data['ClientInfoString'],
+                'InternetMessageId': ""
             }
 
             # If clientIP is in the IP ignore list, ignore and move to next
@@ -350,13 +359,13 @@ class analyze_audit():
 
             # update the export dictionary and write line to file
             export.update({
-                'folder': mail_folder,
-                'internet_message_id': internet_message_id,
-                'date': date,
-                'sender': sender,
-                'sender_name': sender_name,
-                'subject': subject,
-                'link': link
+                'Folder': mail_folder,
+                'InternetMessageId': internet_message_id,
+                'Date Received': date,
+                'Sender': sender,
+                'Sender Name': sender_name,
+                'Subject': subject,
+                'Link': link
             })
             self.write_to_worksheet('mail-trashed', export)
             self.increase_counter('mail-trashed')
@@ -396,11 +405,14 @@ class analyze_audit():
             'CreationDate': audit_data['CreationTime'],
             'UserId': audit_data['UserId'],
             'Operation': audit_data['Operation'],
+            'Link': "",
+            'Date Sent': None,
+            'Sender': "",
+            'Sender Name': "",
+            "Subject": "",
+            "Folder": "",
             'ClientIP': audit_data['ClientIPAddress'],
             'MailClient': audit_data['ClientInfoString'],
-            'MailAccessType': 'Send',
-            'Throttled': '',
-            'OperationCount': '',
             'InternetMessageId': audit_data['Item']['InternetMessageId']
         }
 
@@ -440,15 +452,57 @@ class analyze_audit():
 
         # update the export dictionary and write line to file
         export.update({
-            'folder': mail_folder,
-            'date': date,
-            'sender': sender,
-            'sender_name': sender_name,
-            'subject': subject,
-            'link': link
+            'Folder': mail_folder,
+            'Date Sent': date,
+            'Sender': sender,
+            'Sender Name': sender_name,
+            'Subject': subject,
+            'Link': link
         })
         self.write_to_worksheet('mail-sends', export)
         self.increase_counter('mail-sends')
+
+    def analyze_file_move(self, audit_data):
+        if "EventData" in audit_data:
+            xmldata = ET.fromstring(f"<root>{audit_data['EventData']}</root>")
+
+            # Extract SourceFileUrl and TargetFileUrl
+            source_file_url = xmldata.find('SourceFileUrl').text
+            target_file_url = xmldata.find('TargetFileUrl').text
+
+        else:
+            source_file_url = f"{audit_data.get('SiteUrl', '')}{audit_data.get('SourceRelativeUrl', '')}/{audit_data.get('SourceFileName')}.{audit_data.get('SourceFileExtension')}"
+            target_file_url = f"{audit_data['ObjectId']}"
+
+        export = {
+            'date': audit_data['CreationTime'],
+            'operation': audit_data['Operation'],
+            'source_file_url': f" {source_file_url}",
+            'target_file_url': f" {target_file_url}"
+        }
+
+        print(export)
+        # exit()
+
+        self.write_to_worksheet('file-moves', export)
+        self.increase_counter('file-moves')
+
+
+    # def analyze_folder_moved(self, audit_data):
+    #     xmldata = ET.fromstring(f"<root>{audit_data['EventData']}</root>")
+    #
+    #     # Extract SourceFileUrl and TargetFileUrl
+    #     source_file_url = xmldata.find('SourceFileUrl').text
+    #     target_file_url = xmldata.find('TargetFileUrl').text
+    #
+    #     export = {
+    #         'date': audit_data['CreationTime'],
+    #         'operation': audit_data['Operation'],
+    #         'source_file_url': f"<a href='{source_file_url}'>{source_file_url}</a>",
+    #         'target_file_url': f"<a href='{target_file_url}'>{target_file_url}</a>"
+    #     }
+    #     self.write_to_worksheet('folder-moves', export)
+    #     self.increase_counter('folder-moves')
 
     # Analyzes OneDrive and Sharepoint activity
     def analyze_file_folder_operations(self, audit_data):
@@ -457,9 +511,9 @@ class analyze_audit():
             'operation': audit_data['Operation'],
             'app_used': "",
             # 'app_used': audit_data['AppAccessContext']['ClientAppName'],
-            'item_type': audit_data['ItemType'],
-            'file_name': audit_data['SourceFileName'],
-            'full_url': f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}",
+            'item_type': audit_data.get('ItemType', ""),
+            'file_name': audit_data.get('SourceFileName', ""),
+            'full_url': "",
 
             'user': audit_data.get('UserId', ""),
             'client_ip': audit_data.get('ClientIP', ""),
@@ -474,6 +528,12 @@ class analyze_audit():
             export['app_used'] = audit_data['AppAccessContext']['ClientAppName']
         except Exception:
             export['app_used'] = ""
+
+        try:
+            export['full_url'] = f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}"
+        except:
+            export['full_url'] = ""
+
 
         self.write_to_worksheet('files', export)
         self.increase_counter('file-ops')
@@ -548,7 +608,7 @@ class analyze_audit():
                 for cell in row:
                     cell.font = Font(size=13)
                     # create hyperlinks in cells that look like they are hyperlinks
-                    if type(cell.value) is str and cell.value.startswith("https://") == True:
+                    if type(cell.value) is str and cell.value.startswith("https://"):
                         cell.hyperlink = cell.value
                         cell.value = "View on the Web"
                         # Issue: Neither of the methods below make the link LOOK like a hyperlink
@@ -602,22 +662,28 @@ class analyze_audit():
                 elif row['Operation'] == "MailItemsAccessed" and "Folders" in row['AuditData']:
                     self.analyze_mail_access(audit_data)
 
-                # Mail folder syncs - much more worrisome
-                elif row['Operation'] == "MailItemsAccessed" and "Folders" not in row['AuditData']:
-                    self.analyze_mail_sync(audit_data)
+                # compile Sent Messages in the same way
+                elif row['Operation'] == "Send":
+                    self.analyze_mail_send(audit_data)
 
                 # do the same for any messages moved to deleted items
                 elif row['Operation'] == "MoveToDeletedItems":
                     self.analyze_mail_trashed(audit_data)
+
+                # Mail folder syncs - much more worrisome
+                elif row['Operation'] == "MailItemsAccessed" and "Folders" not in row['AuditData']:
+                    self.analyze_mail_sync(audit_data)
 
                 # report soft deleted and hard delete messages. No metadata for these types of messages, but subject
                 # is still accessible.
                 elif audit_data['Operation'] == "SoftDelete" or audit_data['Operation'] == "HardDelete":
                     self.analyze_deleted_mail(audit_data)
 
-                # compile Sent Messages in the same way
-                elif row['Operation'] == "Send":
-                    self.analyze_mail_send(audit_data)
+                # elif audit_data['Operation'] == "FolderMoved":
+                #     self.analyze_folder_moved(audit_data)
+
+                elif audit_data['Operation'] == "FileMoved" or audit_data['Operation'] == "FolderMoved":
+                    self.analyze_file_move(audit_data)
 
                 # OneDrive and Sharepoint Operations
                 elif "File" in row['Operation'] or "Folder" in row['Operation']:
@@ -664,4 +730,3 @@ if __name__ == "__main__":
     report['duration'] = f"{ round(time.time() - analyze.start_time, 2) } seconds"
 
     print(json.dumps(report, indent=4))
-
