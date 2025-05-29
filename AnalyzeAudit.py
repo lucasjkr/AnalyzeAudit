@@ -97,6 +97,7 @@ class analyze_audit():
             for row in csv_reader:
                 if row['Operation'] not in operations:
                     operations.append(row['Operation'])
+                    # print(f"{row['Operation']} * {json.dumps(row['AuditData'])}")
         for op in sorted(operations):
             print(op)
         exit()
@@ -462,83 +463,37 @@ class analyze_audit():
         self.write_to_worksheet('mail-sends', export)
         self.increase_counter('mail-sends')
 
-    def analyze_file_move(self, audit_data):
-        if "EventData" in audit_data:
-            xmldata = ET.fromstring(f"<root>{audit_data['EventData']}</root>")
-
-            # Extract SourceFileUrl and TargetFileUrl
-            source_file_url = xmldata.find('SourceFileUrl').text
-            target_file_url = xmldata.find('TargetFileUrl').text
-
-        else:
-            source_file_url = f"{audit_data.get('SiteUrl', '')}{audit_data.get('SourceRelativeUrl', '')}/{audit_data.get('SourceFileName')}.{audit_data.get('SourceFileExtension')}"
-            target_file_url = f"{audit_data['ObjectId']}"
-
+    def analyze_combined_file_operations(self, audit_data):
         export = {
-            'date': audit_data['CreationTime'],
-            'operation': audit_data['Operation'],
-            'source_file_url': f" {source_file_url}",
-            'target_file_url': f" {target_file_url}"
-        }
-
-        print(export)
-        # exit()
-
-        self.write_to_worksheet('file-moves', export)
-        self.increase_counter('file-moves')
-
-
-    # def analyze_folder_moved(self, audit_data):
-    #     xmldata = ET.fromstring(f"<root>{audit_data['EventData']}</root>")
-    #
-    #     # Extract SourceFileUrl and TargetFileUrl
-    #     source_file_url = xmldata.find('SourceFileUrl').text
-    #     target_file_url = xmldata.find('TargetFileUrl').text
-    #
-    #     export = {
-    #         'date': audit_data['CreationTime'],
-    #         'operation': audit_data['Operation'],
-    #         'source_file_url': f"<a href='{source_file_url}'>{source_file_url}</a>",
-    #         'target_file_url': f"<a href='{target_file_url}'>{target_file_url}</a>"
-    #     }
-    #     self.write_to_worksheet('folder-moves', export)
-    #     self.increase_counter('folder-moves')
-
-    # Analyzes OneDrive and Sharepoint activity
-    def analyze_file_folder_operations(self, audit_data):
-        export = {
-            'date': audit_data['CreationTime'],
-            'operation': audit_data['Operation'],
-            'app_used': "",
-            # 'app_used': audit_data['AppAccessContext']['ClientAppName'],
-            'item_type': audit_data.get('ItemType', ""),
+            'date': audit_data.get('CreationTime', ""),
+            'operation': audit_data.get('Operation', ""),
+            'user': audit_data.get('UserId', ""),
             'file_name': audit_data.get('SourceFileName', ""),
             'full_url': "",
-
-            'user': audit_data.get('UserId', ""),
             'client_ip': audit_data.get('ClientIP', ""),
-            'auth_type': audit_data.get('AuthenticationType', ""),
-            'event_source': audit_data.get('EventSource', ""),
-            'managed_device': audit_data.get('IsManagedDevice', ""),
             'user_agent': audit_data.get('UserAgent', ""),
-            'device_platform': audit_data.get('Platform', ""),
+            'platform': audit_data.get('Platform', ""),
+            'app_used': "",
+            'auth_type': audit_data.get('AuthenticationType', ""),
+            'managed_device': audit_data.get('IsManagedDevice', "")
         }
 
+        # Try to extract optional fields
         try:
             export['app_used'] = audit_data['AppAccessContext']['ClientAppName']
         except Exception:
             export['app_used'] = ""
 
         try:
-            export['full_url'] = f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}"
-        except:
+            export[
+                'full_url'] = f"{audit_data['SiteUrl']}/{audit_data['SourceRelativeUrl']}/{audit_data['SourceFileName']}"
+        except Exception:
             export['full_url'] = ""
 
+        self.write_to_worksheet('file-operations', export)
+        self.increase_counter('file-operations')
 
-        self.write_to_worksheet('files', export)
-        self.increase_counter('file-ops')
-
-    # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
+        # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
     # as Threat Hunting Data is
     def analyze_login_events(self, audit_data):
         export = {
@@ -686,8 +641,14 @@ class analyze_audit():
                     self.analyze_file_move(audit_data)
 
                 # OneDrive and Sharepoint Operations
-                elif "File" in row['Operation'] or "Folder" in row['Operation']:
-                    self.analyze_file_folder_operations(audit_data)
+                elif row['Operation'] in [
+                    "FileAccessed", "FileAccessedExtended", "FileCheckedIn", "FileCopied",
+                    "FileDownloaded", "FileModified", "FileModifiedExtended", "FileMoved",
+                    "FilePreviewed", "FileRecycled", "FileRenamed", "FileSyncDownloadedFull",
+                    "FileSyncUploadedFull", "FileTranscriptContentAccessed", "FileUploaded"
+                ]:
+                    self.analyze_combined_file_operations(audit_data)
+
 
                 elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
                     self.analyze_login_events(audit_data)
