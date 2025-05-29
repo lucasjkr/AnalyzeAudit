@@ -9,7 +9,7 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 import urllib.parse
 
-class analyze_audit():
+class AnalyzeMicrosoftAuditLog():
     input: str
 
     def __init__(self):
@@ -25,6 +25,8 @@ class analyze_audit():
         self.counter = {}
         self.start_time =  time.time()
 
+        # Create empty workbook:
+        self.workbook = Workbook()
 
         # cache graph requests for 1 week (604800 seconds)
         # https://pypi.org/project/requests-cache/
@@ -38,11 +40,8 @@ class analyze_audit():
         self.workbook = None
 
     def __exit__(self):
-        self.db.close()
-
-    def create_empty_workbook(self):
-        self.workbook = Workbook()
-        # del self.workbook[self.workbook.sheetnames[0]]
+        # this function empty for now, placeholder for if new logic added
+        pass
 
     def write_to_worksheet(self, sheet, data):
         # If worksheet doesn't exist, create worksheet and write header row, then proceed to rest of function.
@@ -599,7 +598,6 @@ class analyze_audit():
         self.workbook.save(f"data{os.sep}{Path(self.input).stem}.xlsx")
 
     def execute(self):
-        self.create_empty_workbook()
         i = 0
         print(i, end='')
         with open(self.input) as csv_file:
@@ -690,7 +688,7 @@ class analyze_audit():
             self.execute()
 
 if __name__ == "__main__":
-    analyze = analyze_audit()
+    analyze = AnalyzeMicrosoftAuditLog()
     analyze.main()
 
     # analyze.counter dict is not returned as an alphabetical list - this creates a new "report" where the
