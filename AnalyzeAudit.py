@@ -11,7 +11,6 @@ import urllib.parse
 
 class analyze_audit():
     input: str
-    # cache: None
 
     def __init__(self):
         # input file
@@ -490,6 +489,15 @@ class analyze_audit():
         except Exception:
             export['full_url'] = ""
 
+        export['file_name'] = audit_data.get('SourceFileName', "") or audit_data.get('ObjectId', "").split('/')[-1]
+        try:
+            if audit_data.get('ItemType') == "Folder":
+                export['full_url'] = f"{audit_data['SiteUrl']}/{audit_data.get('SourceRelativeUrl', '')}"
+            else:
+                export['full_url'] = f"{audit_data['SiteUrl']}/{audit_data.get('SourceRelativeUrl', '')}/{audit_data.get('SourceFileName', '')}"
+        except Exception:
+            export['full_url'] = ""
+
         self.write_to_worksheet('file-operations', export)
         self.increase_counter('file-operations')
 
@@ -634,12 +642,6 @@ class analyze_audit():
                 elif audit_data['Operation'] == "SoftDelete" or audit_data['Operation'] == "HardDelete":
                     self.analyze_deleted_mail(audit_data)
 
-                # elif audit_data['Operation'] == "FolderMoved":
-                #     self.analyze_folder_moved(audit_data)
-
-                elif audit_data['Operation'] == "FileMoved" or audit_data['Operation'] == "FolderMoved":
-                    self.analyze_file_move(audit_data)
-
                 # OneDrive and Sharepoint Operations
                 elif row['Operation'] in [
                     "FileAccessed", "FileAccessedExtended", "FileCheckedIn", "FileCopied",
@@ -648,6 +650,14 @@ class analyze_audit():
                     "FileSyncUploadedFull", "FileTranscriptContentAccessed", "FileUploaded"
                 ]:
                     self.analyze_combined_file_operations(audit_data)
+
+
+                elif row['Operation'] in [
+                    "FolderCreated", "FolderModified", "FolderRenamed"
+                ]:
+                    self.analyze_combined_file_operations(audit_data)
+
+
 
 
                 elif "UserLoggedIn" in row['Operation'] or "UserLoginFailed" in row['Operation']:
