@@ -36,9 +36,6 @@ class AnalyzeMicrosoftAuditLog():
         self.token_expires_at = datetime.now() + timedelta(hours=-1)
         self.token = ""
 
-        # container for target notebook for results
-        self.workbook = None
-
     def __exit__(self):
         # this function empty for now, placeholder for if new logic added
         pass
@@ -366,6 +363,7 @@ class AnalyzeMicrosoftAuditLog():
                 'Subject': subject,
                 'Link': link
             })
+
             self.write_to_worksheet('mail-trashed', export)
             self.increase_counter('mail-trashed')
 
@@ -500,7 +498,7 @@ class AnalyzeMicrosoftAuditLog():
         self.write_to_worksheet('file-operations', export)
         self.increase_counter('file-operations')
 
-        # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
+    # Less useful than threat hunting queries, but data isn't subject to expiration as quickly
     # as Threat Hunting Data is
     def analyze_login_events(self, audit_data):
         export = {
@@ -551,7 +549,32 @@ class AnalyzeMicrosoftAuditLog():
         self.write_to_worksheet('logins', export)
         self.increase_counter('logins')
 
-    # Does the following:
+    def analyze_sharing_events(self, audit_data):
+        export = {
+            'timestamp': audit_data.get('CreationTime', ""),
+            'user': audit_data.get('UserId', ""),
+            'target_user': audit_data.get('TargetUserOrGroupName', ""),
+            'item_name': audit_data.get('ItemName', ""),
+            'url': audit_data.get('ObjectId', ""),
+            'operation': audit_data.get('Operation', "")
+        }
+
+        # Determine the worksheet name based on the operation type
+        operation_type = audit_data.get('Operation', "")
+        if "SecureLink" in operation_type:
+            sheet_name = 'secure-links'
+
+        elif "SharingLink" in operation_type:
+            sheet_name = 'sharing-links'
+        elif "CompanyLink" in operation_type or "AnonymousLink" in operation_type:
+            sheet_name = 'public-links'
+        else:
+            sheet_name = 'other-sharing-events'
+
+        self.write_to_worksheet(sheet_name, export)
+        self.increase_counter(sheet_name)
+
+        # Does the following:
     # * Changes font size to 13pt to be more legible,
     # * widens columns to fit data
     # * Creates a header row and freezes that row to top of page
@@ -648,6 +671,16 @@ class AnalyzeMicrosoftAuditLog():
                     "FileSyncUploadedFull", "FileTranscriptContentAccessed", "FileUploaded"
                 ]:
                     self.analyze_combined_file_operations(audit_data)
+
+                # Link sharing events
+                if row['Operation'] in [
+                    "AddedToSecureLink", "AddedToSharingLink", "AnonymousLinkUsed", "CompanyLinkCreated",
+                    "CompanyLinkUsed", "RemovedFromSecureLink", "RemovedFromSharingLink", "SecureLinkCreated",
+                    "SecureLinkDeleted", "SecureLinkUpdated", "SecureLinkUsed", "SharingInheritanceBroken",
+                    "SharingLinkCreated", "SharingLinkDeleted", "SharingLinkUpdated", "SharingLinkUsed",
+                    "SharingPolicyChanged", "SharingRevoked"
+                ]:
+                    self.analyze_sharing_events(audit_data)
 
 
                 elif row['Operation'] in [
