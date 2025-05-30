@@ -23,13 +23,14 @@ class AnalyzeMicrosoftAuditLog():
         self.ip_ignore_list = json.loads( self.config.get('IP_IGNORE_LIST', "[]") )
 
         self.counter = {}
-        self.start_time =  time.time()
+        self.start_time = time.time()
 
         # Create empty workbook:
         self.workbook = Workbook()
 
-        # cache graph requests for 1 week (604800 seconds)
-        # https://pypi.org/project/requests-cache/
+        # cache graph requests indefinitely. This is because once we've fetched a mails metadata with its
+        # InternetMessageId, that metadata will never change, so there's no point in letting it expire.
+        # Also, makes re-running the script MUCH faster. Docs: https://pypi.org/project/requests-cache/
         self.session = requests_cache.CachedSession('requests_cache', expire_after=NEVER_EXPIRE)
 
         # bearer token for Graph API - make sure the first token is already expired
@@ -273,7 +274,6 @@ class AnalyzeMicrosoftAuditLog():
         export['user'] = audit_data['UserId']
         export['mailbox'] = audit_data['MailboxOwnerUPN']
         export['user_ip'] = audit_data['ClientIP']
-        # export['user_app'] = audit_data['ClientProcessName']
         export['user_agent'] = audit_data['ClientInfoString']
 
         for prop in audit_data['OperationProperties']:
@@ -572,24 +572,12 @@ class AnalyzeMicrosoftAuditLog():
             'managed_device': audit_data.get('IsManagedDevice', "")
         }
 
-        ### Uncomment to put each type of link activity into its own tab
-        # # Determine the worksheet name based on the operation type
-        # operation_type = audit_data.get('Operation', "")
-        # if "SecureLink" in operation_type:
-        #     sheet_name = 'secure-links'
-        # elif "SharingLink" in operation_type:
-        #     sheet_name = 'sharing-links'
-        # elif "CompanyLink" in operation_type or "AnonymousLink" in operation_type:
-        #     sheet_name = 'public-links'
-        # else:
-        #     sheet_name = 'other-sharing-events'
-
         sheet_name = "link-activity"
 
         self.write_to_worksheet(sheet_name, export)
         self.increase_counter(sheet_name)
 
-        # Does the following:
+    # Does the following:
     # * Changes font size to 13pt to be more legible,
     # * widens columns to fit data
     # * Creates a header row and freezes that row to top of page
